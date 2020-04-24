@@ -4,7 +4,8 @@
 #include <opencv2/opencv.hpp>
 
 #define MIN_RETARGET_DELTA 10
-#define NUM_ITERATIONS 5
+#define NUM_ITERATIONS 3
+#define SAVE_INTERMED_IMG 1
 
 void retarget(const cv::Mat &src, cv::Mat &dst, int dst_height, int dst_width);
 

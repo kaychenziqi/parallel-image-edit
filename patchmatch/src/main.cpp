@@ -19,6 +19,13 @@ void do_retarget(string input_file, string output_file, int height, int width) {
     imwrite(output_file, dst);
 }
 
+void do_resize(string input_file, string output_file, int height, int width) {
+    Mat src = imread(input_file, IMREAD_COLOR);
+    Mat dst;
+    resize(src, dst, Size(width, height));
+    imwrite(output_file, dst);
+}
+
 int main(int argc, char** argv) {
     if (argc < 5) {
         cout << "Usage: ./retarget <input_path> <output_path> <target_height> <target_width>" << endl;
@@ -32,6 +39,7 @@ int main(int argc, char** argv) {
 
     display_image(input_file);
     do_retarget(input_file, output_file, height, width);
+    do_resize(input_file, output_file + "-resize.jpg", height, width);
 
     return 0;
 }

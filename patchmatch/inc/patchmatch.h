@@ -4,7 +4,7 @@
 #include <opencv2/opencv.hpp>
 
 #define RANDOM_TRIALS 3
-#define HALF_PATCH 3
+#define HALF_PATCH 1
 
 // map entry type
 typedef struct {

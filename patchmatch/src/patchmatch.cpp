@@ -32,8 +32,8 @@ float patch_distance(const cv::Mat &first, int fx, int fy,
     const cv::Mat &second, int sx, int sy)
 {
     float dist = 0;
-    for (int j = -HALF_PATCH; j < HALF_PATCH; j++) {
-        for (int i = -HALF_PATCH; i < HALF_PATCH; i++) {
+    for (int j = -HALF_PATCH; j <= HALF_PATCH; j++) {
+        for (int i = -HALF_PATCH; i <= HALF_PATCH; i++) {
             int fx1 = min(first.cols - 1, max(0, fx + i));
             int fy1 = min(first.rows - 1, max(0, fy + i));
             Vec3b fpixel = first.at<Vec3b>(fy1, fx1);
