@@ -84,15 +84,15 @@ void calculate_boundbox_omp_static(int target_w, int target_h, int target_nc, in
     #endif
     {
         int t = omp_get_thread_num();
-        int x_each = source_width/4;
-        int y_each = source_height/3;
+        int x_each = target_w/4;
+        int y_each = target_h/3;
         int y_begin = (t/4)*y_each;
         int y_end = y_begin+y_each;
         int x_begin = (t%4)*x_each;
         int x_end = x_begin+x_each;
-        for(int channel = 0; channel < source_nchannel; channel++){
-            for(int y = y_begin; y<y_end && y < source_height; y++){
-                for(int x = x_begin; x<x_end && x < source_width; x++){
+        for(int channel = 0; channel < target_nc; channel++){
+            for(int y = y_begin; y<y_end && y < target_h; y++){
+                for(int x = x_begin; x<x_end && x < target_w; x++){
                     int id = x + y*target_w + channel * target_w * target_h;
                     if(boundryPixelArray[id]==BOUNDRY){
                         if(x<*boundBoxMinX){
@@ -126,15 +126,15 @@ void calculate_boundbox_omp_dynamic(int target_w, int target_h, int target_nc, i
     #endif
     {
         int t = omp_get_thread_num();
-        int x_each = source_width/4;
-        int y_each = source_height/3;
+        int x_each = target_w/4;
+        int y_each = target_h/3;
         int y_begin = (t/4)*y_each;
         int y_end = y_begin+y_each;
         int x_begin = (t%4)*x_each;
         int x_end = x_begin+x_each;
-        for(int channel = 0; channel < source_nchannel; channel++){
-            for(int y = y_begin; y<y_end && y < source_height; y++){
-                for(int x = x_begin; x<x_end && x < source_width; x++){
+        for(int channel = 0; channel < target_nc; channel++){
+            for(int y = y_begin; y<y_end && y < target_h; y++){
+                for(int x = x_begin; x<x_end && x < target_w; x++){
                     int id = x + y*target_w + channel * target_w * target_h;
                     if(boundryPixelArray[id]==BOUNDRY){
                         if(x<*boundBoxMinX){
@@ -232,6 +232,7 @@ void extract_boundary_omp_static(float *maskIn, int *boundryPixelArray, int sour
         for(int channel = 0; channel < source_nchannel; channel++){
             for(int y = y_begin; y<y_end && y < source_height; y++){
                 for(int x = x_begin; x<x_end && x < source_width; x++){
+                    int id = x + y*source_width + channel * source_width * source_height;
                     if(x==0 && y==0 && maskIn[id]){
                     boundryPixelArray[id]=OUTSIDE;
                     }
@@ -455,8 +456,8 @@ void poisson_jacobi_omp_static(float *targetimg, float *outimg,
         for(int i=0; i<ITERATIONS; i++){
             //printf("%d iteration\n", i);
             for(int channel = 0; channel < c; channel++){
-                for(int y = y_begin; y < y_end; y++){
-                    for(int x = x_begin; x < x_end; x++){
+                for(int y = y_begin; y < y_end && y<boundBoxMaxY; y++){
+                    for(int x = x_begin; x < x_end && x<boundBoxMaxX; x++){
                         int id = x + y*w + channel * w * h;
                         int idx_nextX = x+1 + w*y +w*h*channel;
                         int idx_prevX = x-1 + w*y + w*h*channel;
@@ -522,18 +523,9 @@ void poisson_jacobi_omp_dynamic(float *targetimg, float *outimg,
     }
 }
 
-void print_cuda_info(){
-    int deviceCount = 0;
-    cudaError_t err = cudaGetDeviceCount(&deviceCount);
-
-    printf("---------------------------------------------------------\n");
-    printf("Found %d CUDA devices\n", deviceCount);
-}
-
-
 int main(int argc, char **argv)
 {
-    int iterations=ITERATIONS;
+    //int iterations=ITERATIONS;
 
     string source_image = "";
     string mask = "";
@@ -556,12 +548,12 @@ int main(int argc, char **argv)
     cv::Mat mtargetImage = cv::imread(target_image.c_str(), -1);
     if (mtargetImage.data == NULL) { cerr << "ERROR: Could not load  image " << mask << endl; return 1; }
 
-    msourceImage.convertTo(mSourceImage,CV_32F);
-    mtargetImage.convertTo(mTargetImage,CV_32F);
+    msourceImage.convertTo(msourceImage,CV_32F);
+    mtargetImage.convertTo(mtargetImage,CV_32F);
     mmask.convertTo(mmask,CV_32F);
 
     msourceImage /= 255.f;
-    mTargetImage /= 255.f;
+    mtargetImage /= 255.f;
     mmask /= 255.f;
 
     int source_w = msourceImage.cols;         // width
@@ -579,7 +571,7 @@ int main(int argc, char **argv)
     int mask_nc = mmask.channels();  // number of channels
     cout <<endl<<" mask          : " << mask_w << " x " << mask_h << " x " <<mask_nc<<endl;
 
-    cv::Mat mOut_seq(source_h,source_w,source_nc);  
+    cv::Mat mOut_seq(target_h,target_w,mtargetImage.type());  
 
     float *srcimgIn  = new float[(size_t)source_w*source_h*source_nc];
     float *maskIn  = new float[(size_t)mask_w*mask_h*mask_nc];
@@ -596,12 +588,16 @@ int main(int argc, char **argv)
     
     // begin sequential part clocking
     clock_t t1 = clock();
+    cout<<"begin sequentail"<<endl;
     //get boundary pixel array to indicate which pixel is corner, edge, inside_mask, boundary or just outside
     extract_boundary(maskIn, boundryPixelArray_seq, source_nc, source_w, source_h);
     int boundBoxMinX, boundBoxMinY, boundBoxMaxX, boundBoxMaxY; 
     // calculate the bounding box for reducing unnecessary calculation
+    cout<<"begin 596"<<endl;
     calculate_boundbox(target_w, target_h, target_nc, boundryPixelArray_seq, &boundBoxMinX, &boundBoxMinY, &boundBoxMaxX, &boundBoxMaxY);
+    cout<<"begin 598"<<endl;
     merge_without_blend(srcimgIn, targetimgIn, imgOut_seq, boundryPixelArray_seq, source_nc, source_w, source_h);
+    cout<<"begin 600"<<endl;
     poisson_jacobi(targetimgIn, imgOut_seq, boundryPixelArray_seq, source_nc, source_w, source_h, boundBoxMinX, boundBoxMaxX, boundBoxMinY, boundBoxMaxY);
     
     clock_t sequential_time = clock()-t1;
@@ -621,7 +617,7 @@ int main(int argc, char **argv)
     cout << "speedup for openmp static: "<<(sequential_time * 1.0 / CLOCKS_PER_SEC * 1000)/(openmp_time_static * 1.0 / CLOCKS_PER_SEC * 1000)<<endl;
     
     convert_layered_to_interleaved((float*)mOut_seq.data, imgOut_openmp, source_w, source_h, source_nc);
-    cv::imwrite("FinalImage_cuda.jpg",mOut_seq*255.f);
+    cv::imwrite("FinalImage_omp_static.jpg",mOut_seq*255.f);
 
     /*---------openmp dynamic---------*/
     //TODO!!!!

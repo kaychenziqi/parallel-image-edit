@@ -295,8 +295,8 @@ int main(int argc, char **argv)
     cv::Mat mtargetImage = cv::imread(target_image.c_str(), -1);
     if (mtargetImage.data == NULL) { cerr << "ERROR: Could not load  image " << mask << endl; return 1; }
 
-    msourceImage.convertTo(mSourceImage,CV_32F);
-    mtargetImage.convertTo(mTargetImage,CV_32F);
+    msourceImage.convertTo(msourceImage,CV_32F);
+    mtargetImage.convertTo(mtargetImage,CV_32F);
     mmask.convertTo(mmask,CV_32F);
 
     msourceImage /= 255.f;
@@ -318,7 +318,7 @@ int main(int argc, char **argv)
     int mask_nc = mmask.channels();  // number of channels
     cout <<endl<<" mask          : " << mask_w << " x " << mask_h << " x " <<mask_nc<<endl;
 
-    cv::Mat mOut_seq(source_h,source_w,source_nc);  
+    cv::Mat mOut_seq(target_h,target_w,mtargetImage.type());  
 
     float *srcimgIn  = new float[(size_t)source_w*source_h*source_nc];
     float *maskIn  = new float[(size_t)mask_w*mask_h*mask_nc];
