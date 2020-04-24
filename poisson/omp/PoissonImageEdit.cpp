@@ -6,13 +6,14 @@
 #include "omp.h"
 using namespace std;
 #define ITERATIONS 70000
-#define THREAD_COUNT 12
+#define THREAD_COUNT 8
+#define ROW_THREAD 1
+#define CHUNKSIZE1 32
 
 
 enum corner_pixel {INSIDE_MASK, BOUNDRY, OUTSIDE};
 
-void convert_layered_to_interleaved(float *aOut, const float *aIn, int w, int h, int nc)
-{
+void convert_layered_to_interleaved(float *aOut, const float *aIn, int w, int h, int nc){
 	if (nc==1) { memcpy(aOut, aIn, w*h*sizeof(float)); return; }
     size_t nOmega = (size_t)w*h;
     for (int y=0; y<h; y++)
@@ -27,8 +28,7 @@ void convert_layered_to_interleaved(float *aOut, const float *aIn, int w, int h,
     }
 }
 
-void convert_interleaved_to_layered(float *aOut, const float *aIn, int w, int h, int nc)
-{
+void convert_interleaved_to_layered(float *aOut, const float *aIn, int w, int h, int nc){
 	if (nc==1) { memcpy(aOut, aIn, w*h*sizeof(float)); return; }
     size_t nOmega = (size_t)w*h;
     for (int y=0; y<h; y++)
@@ -42,7 +42,6 @@ void convert_interleaved_to_layered(float *aOut, const float *aIn, int w, int h,
         }
     }
 }
-
 
 void calculate_boundbox(int target_w, int target_h, int target_nc, int *boundryPixelArray, int *boundBoxMinX, int *boundBoxMinY, int *boundBoxMaxX, int *boundBoxMaxY){
     *boundBoxMaxY = INT32_MIN;
@@ -73,6 +72,7 @@ void calculate_boundbox(int target_w, int target_h, int target_nc, int *boundryP
     }
 }
 
+// maybe shouldn't use omp here???? maybe some correctness errors!
 void calculate_boundbox_omp_static(int target_w, int target_h, int target_nc, int *boundryPixelArray, int *boundBoxMinX, int *boundBoxMinY, int *boundBoxMaxX, int *boundBoxMaxY){
     *boundBoxMaxY = INT32_MIN;
     *boundBoxMaxX = INT32_MIN;
@@ -84,12 +84,14 @@ void calculate_boundbox_omp_static(int target_w, int target_h, int target_nc, in
     #endif
     {
         int t = omp_get_thread_num();
-        int x_each = target_w/4;
-        int y_each = target_h/3;
-        int y_begin = (t/4)*y_each;
+        int x_each = target_w/ROW_THREAD;
+        int y_each = target_h/THREAD_COUNT*ROW_THREAD;
+        int y_begin = (t/ROW_THREAD)*y_each;
         int y_end = y_begin+y_each;
-        int x_begin = (t%4)*x_each;
+        int x_begin = (t%ROW_THREAD)*x_each;
         int x_end = x_begin+x_each;
+        //printf("y_begin %d, y_end %d, x_begin %d, x_end %d\n",y_begin, y_end, x_begin, x_end);
+        
         for(int channel = 0; channel < target_nc; channel++){
             for(int y = y_begin; y<y_end && y < target_h; y++){
                 for(int x = x_begin; x<x_end && x < target_w; x++){
@@ -115,15 +117,31 @@ void calculate_boundbox_omp_static(int target_w, int target_h, int target_nc, in
 }
 
 //TODO
-void calculate_boundbox_omp_dynamic(int target_w, int target_h, int target_nc, int *boundryPixelArray, int *boundBoxMinX, int *boundBoxMinY, int *boundBoxMaxX, int *boundBoxMaxY){
+/*void calculate_boundbox_omp_dynamic(int target_w, int target_h, int target_nc, int *boundryPixelArray, int *boundBoxMinX, int *boundBoxMinY, int *boundBoxMaxX, int *boundBoxMaxY){
     *boundBoxMaxY = INT32_MIN;
     *boundBoxMaxX = INT32_MIN;
     *boundBoxMinY = INT32_MAX;
     *boundBoxMinX = INT32_MAX;
 
     #if OMP
-    #pragma omp parallel
+    #pragma omp parallel for schedule(dynamic, CHUNKSIZE1)
     #endif
+    for(int i=0; i<target_nc * target_h *target_w; i++){
+        if(boundryPixelArray[id]==BOUNDRY){
+            if(x<*boundBoxMinX){
+                *boundBoxMinX = x;
+            }
+            if(x>*boundBoxMaxX){
+                *boundBoxMaxX = x;
+            }
+            if(y<*boundBoxMinY){
+                *boundBoxMinY = y;
+            }
+            if(y>*boundBoxMaxY){
+                *boundBoxMaxY = y;
+            }  
+        }
+    }
     {
         int t = omp_get_thread_num();
         int x_each = target_w/4;
@@ -154,7 +172,7 @@ void calculate_boundbox_omp_dynamic(int target_w, int target_h, int target_nc, i
             }
         }
     }
-}
+}*/
 
 void extract_boundary(float *maskIn, int *boundryPixelArray, int source_nchannel, int source_width, int source_height){
     for(int channel = 0; channel < source_nchannel; channel++){
@@ -221,13 +239,13 @@ void extract_boundary_omp_static(float *maskIn, int *boundryPixelArray, int sour
     #endif
     {
         int t = omp_get_thread_num();
-        int x_each = source_width/4;
-        int y_each = source_height/3;
-        int y_begin = (t/4)*y_each;
+        int x_each = source_width/ROW_THREAD;
+        int y_each = source_height/THREAD_COUNT*ROW_THREAD;
+        int y_begin = (t/ROW_THREAD)*y_each;
         int y_end = y_begin+y_each;
-        int x_begin = (t%4)*x_each;
+        int x_begin = (t%ROW_THREAD)*x_each;
         int x_end = x_begin+x_each;
-    
+        //printf("y_begin %d, y_end %d, x_begin %d, x_end %d\n",y_begin, y_end, x_begin, x_end);
         //int tcount = omp_get_num_threads(); we use 12 threads in this experiment
         for(int channel = 0; channel < source_nchannel; channel++){
             for(int y = y_begin; y<y_end && y < source_height; y++){
@@ -283,51 +301,51 @@ void extract_boundary_omp_static(float *maskIn, int *boundryPixelArray, int sour
 
 //TODO
 void extract_boundary_omp_dynamic(float *maskIn, int *boundryPixelArray, int source_nchannel, int source_width, int source_height){
-    for(int channel = 0; channel < source_nchannel; channel++){
-        for(int y = 0; y < source_height; y++){
-            for(int x = 0; x < source_width; x++){
-                int id = x + y*source_width + channel * source_width * source_height;
-                
-                if(x==0 && y==0 && maskIn[id]){
-                    boundryPixelArray[id]=OUTSIDE;
-                }
-                else if(x==0 && y==source_height-1 && maskIn[id]){
-                    boundryPixelArray[id]=OUTSIDE;
-                }
-                else if(x==source_width-1 && y==0 && maskIn[id]){
-                    boundryPixelArray[id]=OUTSIDE;
-                }
-                else if(x==source_width-1 && y==source_height-1 && maskIn[id]){
-                    boundryPixelArray[id]=OUTSIDE;
-                }
-                else if(x==0 && y < source_height-1 && maskIn[id]){
-                    boundryPixelArray[id]=OUTSIDE;
-                }
-                else if(x==source_width-1 && y < source_height-1 && maskIn[id]){
-                    boundryPixelArray[id]=OUTSIDE;
-                }
-                else if(x < source_width-1 && y==0 && maskIn[id]){
-                    boundryPixelArray[id]=OUTSIDE;
-                }
-                else if(x < source_width-1 && y==source_height-1 && maskIn[id]){
-                    boundryPixelArray[id]=OUTSIDE;
-                }
-                else{
-                    int id_right = x+1 + y*source_width + channel * source_width * source_height;
-                    int id_left = x-1 + y*source_width + channel * source_width * source_height;
-                    int id_up = x + (y+1)*source_width + channel * source_width * source_height;
-                    int id_down = x + (y-1)*source_width + channel * source_width * source_height;
+    #if OMP
+    #pragma omp parallel for schedule(dynamic, CHUNKSIZE1)
+    #endif
+    for(int id =0; id<source_nchannel * source_width * source_height; id++){
+        int channel = id/(source_width * source_height);
+        int x = (id%(source_width * source_height))%source_width;
+        int y = (id%(source_width * source_height))/source_width;
+        if(x==0 && y==0 && maskIn[id]){
+            boundryPixelArray[id]=OUTSIDE;
+        }
+        else if(x==0 && y==source_height-1 && maskIn[id]){
+            boundryPixelArray[id]=OUTSIDE;
+        }
+        else if(x==source_width-1 && y==0 && maskIn[id]){
+            boundryPixelArray[id]=OUTSIDE;
+        }
+        else if(x==source_width-1 && y==source_height-1 && maskIn[id]){
+            boundryPixelArray[id]=OUTSIDE;
+        }
+        else if(x==0 && y < source_height-1 && maskIn[id]){
+            boundryPixelArray[id]=OUTSIDE;
+        }
+        else if(x==source_width-1 && y < source_height-1 && maskIn[id]){
+            boundryPixelArray[id]=OUTSIDE;
+        }
+        else if(x < source_width-1 && y==0 && maskIn[id]){
+            boundryPixelArray[id]=OUTSIDE;
+        }
+        else if(x < source_width-1 && y==source_height-1 && maskIn[id]){
+            boundryPixelArray[id]=OUTSIDE;
+        }
+        else{
+            int id_right = x+1 + y*source_width + channel * source_width * source_height;
+            int id_left = x-1 + y*source_width + channel * source_width * source_height;
+            int id_up = x + (y+1)*source_width + channel * source_width * source_height;
+            int id_down = x + (y-1)*source_width + channel * source_width * source_height;
 
-                    if(maskIn[id]>=0.5&&maskIn[id_right]>=0.5&&maskIn[id_left]>=0.5&&maskIn[id_up]>=0.5&&maskIn[id_down]>=0.5){
-                        boundryPixelArray[id] = INSIDE_MASK;
-                    }
-                    else if(maskIn[id]){
-                        boundryPixelArray[id] = BOUNDRY;
-                    }
-                    else{
-                        boundryPixelArray[id] = OUTSIDE;
-                    }
-                }
+            if(maskIn[id]>=0.5&&maskIn[id_right]>=0.5&&maskIn[id_left]>=0.5&&maskIn[id_up]>=0.5&&maskIn[id_down]>=0.5){
+                boundryPixelArray[id] = INSIDE_MASK;
+            }
+            else if(maskIn[id]){
+                boundryPixelArray[id] = BOUNDRY;
+            }
+            else{
+                boundryPixelArray[id] = OUTSIDE;
             }
         }
     }
@@ -355,13 +373,13 @@ void merge_without_blend_omp_static(float *srcimg, float *targetimg, float *outi
     #endif
     {
         int t = omp_get_thread_num();
-        int x_each = source_width/4;
-        int y_each = source_height/3;
-        int y_begin = (t/4)*y_each;
+        int x_each = source_width/ROW_THREAD;
+        int y_each = source_height/THREAD_COUNT*ROW_THREAD;
+        int y_begin = (t/ROW_THREAD)*y_each;
         int y_end = y_begin+y_each;
-        int x_begin = (t%4)*x_each;
+        int x_begin = (t%ROW_THREAD)*x_each;
         int x_end = x_begin+x_each;
-    
+        //printf("y_begin %d, y_end %d, x_begin %d, x_end %d\n",y_begin, y_end, x_begin, x_end);
         //int tcount = omp_get_num_threads(); we use 12 threads in this experiment
         for(int channel = 0; channel < source_nchannel; channel++){
             for(int y = y_begin; y<y_end && y < source_height; y++){
@@ -381,30 +399,14 @@ void merge_without_blend_omp_static(float *srcimg, float *targetimg, float *outi
 
 void merge_without_blend_omp_dynamic(float *srcimg, float *targetimg, float *outimg, int *boundary_array,int source_nchannel, int source_width, int source_height){
     #if OMP
-    #pragma omp parallel
+    #pragma omp parallel for schedule(dynamic, CHUNKSIZE1)
     #endif
-    {
-        int t = omp_get_thread_num();
-        int x_each = source_width/4;
-        int y_each = source_height/3;
-        int y_begin = (t/4)*y_each;
-        int y_end = y_begin+y_each;
-        int x_begin = (t%4)*x_each;
-        int x_end = x_begin+x_each;
-    
-        //int tcount = omp_get_num_threads(); we use 12 threads in this experiment
-        for(int channel = 0; channel < source_nchannel; channel++){
-            for(int y = y_begin; y<y_end && y < source_height; y++){
-                for(int x = x_begin; x<x_end && x < source_width; x++){
-                    int id = x + y*source_width + channel * source_width * source_height;
-                    if(boundary_array[id] == INSIDE_MASK){
-                        outimg[id] = targetimg[id];
-                    }
-                    else{
-                        outimg[id] = srcimg[id];
-                    }
-                }
-            }
+    for(int id=0; id<source_height * source_width * source_nchannel; id++){
+        if(boundary_array[id] == INSIDE_MASK){
+            outimg[id] = targetimg[id];
+        }
+        else{
+            outimg[id] = srcimg[id];
         }
     }
 }
@@ -445,13 +447,13 @@ void poisson_jacobi_omp_static(float *targetimg, float *outimg,
     #endif
     {
         int t = omp_get_thread_num();
-        int x_each = (boundBoxMaxX-boundBoxMinX+1)/4;
-        int y_each = (boundBoxMaxY-boundBoxMinY+1)/3;
-        int y_begin = (t/4)*y_each + boundBoxMinY;
-        int y_end = y_begin+y_each + boundBoxMinY;
-        int x_begin = (t%4)*x_each + boundBoxMinX;
-        int x_end = x_begin+x_each + boundBoxMinX;
-
+        int x_each = (boundBoxMaxX-boundBoxMinX+1)/ROW_THREAD;
+        int y_each = (boundBoxMaxY-boundBoxMinY+1)/THREAD_COUNT*ROW_THREAD;
+        int y_begin = (t/ROW_THREAD)*y_each + boundBoxMinY;
+        int y_end = y_begin+y_each;
+        int x_begin = (t%ROW_THREAD)*x_each + boundBoxMinX;
+        int x_end = x_begin+x_each;
+        //printf("y_begin %d, y_end %d, x_begin %d, x_end %d\n",y_begin, y_end, x_begin, x_end);
     
         for(int i=0; i<ITERATIONS; i++){
             //printf("%d iteration\n", i);
@@ -484,43 +486,28 @@ void poisson_jacobi_omp_dynamic(float *targetimg, float *outimg,
     int h, int boundBoxMinX, int boundBoxMaxX, 
     int boundBoxMinY, int boundBoxMaxY){
     
-    #if OMP
-    #pragma omp parallel
-    #endif
-    {
-        int t = omp_get_thread_num();
-        int x_each = (boundBoxMaxX-boundBoxMinX+1)/4;
-        int y_each = (boundBoxMaxY-boundBoxMinY+1)/3;
-        int y_begin = (t/4)*y_each + boundBoxMinY;
-        int y_end = y_begin+y_each + boundBoxMinY;
-        int x_begin = (t%4)*x_each + boundBoxMinX;
-        int x_end = x_begin+x_each + boundBoxMinX;
-
-    
-        for(int i=0; i<ITERATIONS; i++){
-            //printf("%d iteration\n", i);
-            for(int channel = 0; channel < c; channel++){
-                for(int y = y_begin; y < y_end; y++){
-                    for(int x = x_begin; x < x_end; x++){
-                        int id = x + y*w + channel * w * h;
-                        int idx_nextX = x+1 + w*y +w*h*channel;
-                        int idx_prevX = x-1 + w*y + w*h*channel;
-                        int idx_nextY = x + w*(y+1) +w*h*channel;
-                        int idx_prevY = x + w*(y-1) +w*h*channel;
-                        //printf("id: %d, idx_nextX: %d, idx_prevX: %d, idx_nextY: %d, idx_prevY: %d\n", id, idx_nextX, idx_prevX, idx_nextY, idx_prevY);
-                        if(boundary_array[id] == INSIDE_MASK){
-                            double neighbor_target = targetimg[idx_nextY]+targetimg[idx_nextX]+targetimg[idx_prevX]+targetimg[idx_prevY];
-                            double neighbor_output = outimg[idx_nextY]+outimg[idx_nextX]+outimg[idx_prevX]+outimg[idx_prevY];
-                            outimg[id] = 0.25*(4*targetimg[id]-neighbor_target + neighbor_output);
-                        }
+    //for(int i=0; i<ITERATIONS; i++){
+        #if OMP
+        #pragma omp parallel for schedule(dynamic, CHUNKSIZE1)
+        #endif
+        for(int channel = 0; channel < c; channel++){
+            for(int y = boundBoxMinY; y <= boundBoxMaxY; y++){
+                for(int x = boundBoxMinX; x <= boundBoxMaxX; x++){
+                    int id = x + y*w + channel * w * h;
+                    int idx_nextX = x+1 + w*y +w*h*channel;
+                    int idx_prevX = x-1 + w*y + w*h*channel;
+                    int idx_nextY = x + w*(y+1) +w*h*channel;
+                    int idx_prevY = x + w*(y-1) +w*h*channel;
+                    //printf("id: %d, idx_nextX: %d, idx_prevX: %d, idx_nextY: %d, idx_prevY: %d\n", id, idx_nextX, idx_prevX, idx_nextY, idx_prevY);
+                    if(boundary_array[id] == INSIDE_MASK){
+                        double neighbor_target = targetimg[idx_nextY]+targetimg[idx_nextX]+targetimg[idx_prevX]+targetimg[idx_prevY];
+                        double neighbor_output = outimg[idx_nextY]+outimg[idx_nextX]+outimg[idx_prevX]+outimg[idx_prevY];
+                        outimg[id] = 0.25*(4*targetimg[id]-neighbor_target + neighbor_output);
                     }
                 }
             }
-            #if OMP
-            #pragma omp barrier
-            #endif
         }
-    }
+    //}      
 }
 
 int main(int argc, char **argv)
@@ -532,13 +519,13 @@ int main(int argc, char **argv)
     string target_image = "";
 
     source_image = argv[1];
-    cout<<" source_image   : "<<source_image<<endl;
+    cout<<"source_image:"<<source_image<<endl;
     
     target_image = argv[2];
-    cout<<" target_image   : "<<target_image<<endl;
+    cout<<"target_image:"<<target_image<<endl;
     
     mask = argv[3];
-    cout<<" Mask name   : "<<mask <<endl;
+    cout<<"mask name: "<<mask <<endl;
 
     //load source image
     cv::Mat msourceImage = cv::imread(source_image.c_str(), -1);
@@ -559,17 +546,17 @@ int main(int argc, char **argv)
     int source_w = msourceImage.cols;         // width
     int source_h = msourceImage.rows;         // height
     int source_nc = msourceImage.channels();  // number of channels
-    cout <<endl<<" Source image   : " << source_w << " x " << source_h << " x " <<source_nc<<endl;
+    cout <<endl<<"source image: " << source_w << " x " << source_h << " x " <<source_nc<<endl;
 
     int target_w = mtargetImage.cols;         // width
     int target_h = mtargetImage.rows;         // height
     int target_nc = mtargetImage.channels();  // number of channels
-    cout <<endl<<" target image  : " << target_w << " x " << target_h << " x " <<target_nc<<endl;
+    cout <<endl<<"target image: " << target_w << " x " << target_h << " x " <<target_nc<<endl;
 
     int mask_w = mmask.cols;         // width
     int mask_h = mmask.rows;         // height
     int mask_nc = mmask.channels();  // number of channels
-    cout <<endl<<" mask          : " << mask_w << " x " << mask_h << " x " <<mask_nc<<endl;
+    cout <<endl<<"mask: " << mask_w << " x " << mask_h << " x " <<mask_nc<<endl;
 
     cv::Mat mOut_seq(target_h,target_w,mtargetImage.type());  
 
@@ -585,6 +572,8 @@ int main(int argc, char **argv)
     float *imgOut_seq = new float[(size_t)target_w*target_h*mOut_seq.channels()];
     int *boundryPixelArray_openmp = new int[(size_t)target_w*target_h*mOut_seq.channels()];
     float *imgOut_openmp = new float[(size_t)target_w*target_h*mOut_seq.channels()];
+    int *boundryPixelArray_openmp_dynamic = new int[(size_t)target_w*target_h*mOut_seq.channels()];
+    float *imgOut_openmp_dynamic = new float[(size_t)target_w*target_h*mOut_seq.channels()];
     
     // begin sequential part clocking
     clock_t t1 = clock();
@@ -593,11 +582,9 @@ int main(int argc, char **argv)
     extract_boundary(maskIn, boundryPixelArray_seq, source_nc, source_w, source_h);
     int boundBoxMinX, boundBoxMinY, boundBoxMaxX, boundBoxMaxY; 
     // calculate the bounding box for reducing unnecessary calculation
-    cout<<"begin 596"<<endl;
     calculate_boundbox(target_w, target_h, target_nc, boundryPixelArray_seq, &boundBoxMinX, &boundBoxMinY, &boundBoxMaxX, &boundBoxMaxY);
-    cout<<"begin 598"<<endl;
     merge_without_blend(srcimgIn, targetimgIn, imgOut_seq, boundryPixelArray_seq, source_nc, source_w, source_h);
-    cout<<"begin 600"<<endl;
+    cout << "time cost for seq initialize: "<<(clock()-t1) * 1.0 / CLOCKS_PER_SEC * 1000 << endl;
     poisson_jacobi(targetimgIn, imgOut_seq, boundryPixelArray_seq, source_nc, source_w, source_h, boundBoxMinX, boundBoxMaxX, boundBoxMinY, boundBoxMaxY);
     
     clock_t sequential_time = clock()-t1;
@@ -608,10 +595,16 @@ int main(int argc, char **argv)
     /*-------openmp static---------*/
     omp_set_num_threads(THREAD_COUNT);
     clock_t t2 = clock();
+    cout<<"begin extract boundary"<<endl;
     extract_boundary_omp_static(maskIn, boundryPixelArray_openmp, source_nc, source_w, source_h);
-    calculate_boundbox_omp_static(target_w, target_h, target_nc, boundryPixelArray_openmp, &boundBoxMinX, &boundBoxMinY, &boundBoxMaxX, &boundBoxMaxY);
+    cout<<"begin calculate boundbox"<<endl;
+    calculate_boundbox(target_w, target_h, target_nc, boundryPixelArray_openmp, &boundBoxMinX, &boundBoxMinY, &boundBoxMaxX, &boundBoxMaxY);
+    cout<<"begin merge"<<endl;
     merge_without_blend_omp_static(srcimgIn, targetimgIn, imgOut_openmp, boundryPixelArray_openmp, source_nc, source_w, source_h);
+    cout << "time cost for openmp static initialize: "<<(clock()-t2) * 1.0 / CLOCKS_PER_SEC * 1000 << endl;
+    
     poisson_jacobi_omp_static(targetimgIn, imgOut_openmp, boundryPixelArray_openmp, source_nc, source_w, source_h, boundBoxMinX, boundBoxMaxX, boundBoxMinY, boundBoxMaxY);
+    
     clock_t openmp_time_static = clock()-t2;
     cout << "time cost for openmp static: "<<openmp_time_static * 1.0 / CLOCKS_PER_SEC * 1000 << endl;
     cout << "speedup for openmp static: "<<(sequential_time * 1.0 / CLOCKS_PER_SEC * 1000)/(openmp_time_static * 1.0 / CLOCKS_PER_SEC * 1000)<<endl;
@@ -620,7 +613,26 @@ int main(int argc, char **argv)
     cv::imwrite("FinalImage_omp_static.jpg",mOut_seq*255.f);
 
     /*---------openmp dynamic---------*/
-    //TODO!!!!
+    omp_set_num_threads(THREAD_COUNT);
+    clock_t t3 = clock();
+    cout<<"begin extract boundary"<<endl;
+    extract_boundary_omp_dynamic(maskIn, boundryPixelArray_openmp_dynamic, source_nc, source_w, source_h);
+    cout<<"begin calculate boundbox"<<endl;
+    calculate_boundbox(target_w, target_h, target_nc, boundryPixelArray_openmp_dynamic, &boundBoxMinX, &boundBoxMinY, &boundBoxMaxX, &boundBoxMaxY);
+    cout<<"begin merge"<<endl;
+    merge_without_blend_omp_dynamic(srcimgIn, targetimgIn, imgOut_openmp_dynamic, boundryPixelArray_openmp_dynamic, source_nc, source_w, source_h);
+    cout << "time cost for openmp dynamic initialize: "<<(clock()-t3) * 1.0 / CLOCKS_PER_SEC * 1000 << endl;
+    
+    for(int i=0; i<ITERATIONS; i++){
+        poisson_jacobi_omp_dynamic(targetimgIn, imgOut_openmp_dynamic, boundryPixelArray_openmp_dynamic, source_nc, source_w, source_h, boundBoxMinX, boundBoxMaxX, boundBoxMinY, boundBoxMaxY);
+    }
+    
+    clock_t openmp_time_dynamic = clock()-t3;
+    cout << "time cost for openmp dynamic: "<<openmp_time_dynamic * 1.0 / CLOCKS_PER_SEC * 1000 << endl;
+    cout << "speedup for openmp dynamic: "<<(sequential_time * 1.0 / CLOCKS_PER_SEC * 1000)/(openmp_time_dynamic * 1.0 / CLOCKS_PER_SEC * 1000)<<endl;
+    
+    convert_layered_to_interleaved((float*)mOut_seq.data, imgOut_openmp_dynamic, source_w, source_h, source_nc);
+    cv::imwrite("FinalImage_omp_dynamic.jpg",mOut_seq*255.f);
 
     free(srcimgIn);
     free(maskIn);
@@ -629,4 +641,7 @@ int main(int argc, char **argv)
     free(imgOut_seq);
     free(boundryPixelArray_openmp);
     free(imgOut_openmp);
+    free(boundryPixelArray_openmp_dynamic);
+    free(imgOut_openmp_dynamic);
+
 } 
