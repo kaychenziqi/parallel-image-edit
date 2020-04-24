@@ -20,9 +20,15 @@ typedef float(*distance_func_t)(const cv::Vec3b &, const cv::Vec3b &);
 float sum_squared_diff(const cv::Vec3b &fpixel, const cv::Vec3b &spixel);
 float sum_absolute_diff(const cv::Vec3b &fpixel, const cv::Vec3b &spixel);
 
+// intialize nearest neighbor field
+// template<distance_func_t distance_func>
+void init_random_map(const cv::Mat &first, const cv::Mat &second, map_t *map);
+// template<distance_func_t distance_func>
+void init_retarget_map(const cv::Mat &dst, const cv::Mat &src, map_t *map);
+
 // search nearest neighbor field
-template<distance_func_t distance_func>
-void nn_search(cv::Mat &first, cv::Mat &second, map_t *curMap, map_t *newMap);
+// template<distance_func_t distance_func>
+void nn_search(const cv::Mat &first, const cv::Mat &second, map_t *curMap, map_t *newMap);
 
 
 #endif

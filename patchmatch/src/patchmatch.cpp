@@ -27,8 +27,9 @@ float sum_absolute_diff(const cv::Vec3b &fpixel, const cv::Vec3b &spixel)
     return dist;
 }
 
-template<distance_func_t distance_func>
-float patch_distance(cv::Mat &first, int fx, int fy, cv::Mat &second, int sx, int sy)
+// template<distance_func_t distance_func>
+float patch_distance(const cv::Mat &first, int fx, int fy, 
+    const cv::Mat &second, int sx, int sy)
 {
     float dist = 0;
     for (int j = -HALF_PATCH; j < HALF_PATCH; j++) {
@@ -41,7 +42,8 @@ float patch_distance(cv::Mat &first, int fx, int fy, cv::Mat &second, int sx, in
             int sy1 = min(second.rows - 1, max(0, sy + i));
             Vec3b spixel = second.at<Vec3b>(sy1, sx1);
 
-            dist += distance_func(fpixel, spixel);
+            // dist += distance_func(fpixel, spixel);
+            dist += sum_squared_diff(fpixel, spixel);
         }
     }
     return dist;
@@ -100,8 +102,64 @@ void pick_random_pixel(int radius, int height, int width,
     }
 }
 
-template<distance_func_t distance_func>
-void nn_search(cv::Mat &first, cv::Mat &second, map_t *curMap, map_t *newMap)
+// For each pixel in first, random assign a nn pixel in second
+// template<distance_func_t distance_func>
+void init_random_map(const cv::Mat &first, const cv::Mat &second, map_t *map)
+{
+    int idx = 0;
+    for (int y = 0; y < first.rows; y++ ) {
+        for (int x = 0; x < first.cols; x++ ) {
+            int rx = random() % second.cols;
+            int ry = random() % second.rows;
+            map[idx].x = rx;
+            map[idx].y = ry;
+            // map[idx].dist = patch_distance<distance_func>(first, x, y, second, rx, ry);
+            map[idx].dist = patch_distance(first, x, y, second, rx, ry);
+            idx++;
+        }
+    }
+}
+
+// For each pixel in dst, assign a nn pixel in src
+// template<distance_func_t distance_func>
+void init_retarget_map(const cv::Mat &dst, const cv::Mat &src, map_t *map)
+{
+    int d_height = dst.rows;
+    int d_width = dst.cols;
+    int s_height = src.rows;
+    int s_width = src.cols;
+
+    float y_factor = (float) src.rows / (float) dst.rows;
+    float x_factor = (float) src.cols / (float) dst.cols;
+    float fy = 0;
+    float fx = 0;
+
+    for (int dy = 0; dy < dst.rows; dy++) {
+        int sy = (int) floor(fy);
+        fx = 0;
+
+        for (int dx = 0; dx < dst.cols; dx++) {
+            int sx = (int) floor(fx);
+            int didx = dy * d_width + dx;
+            int sidx = sy * s_width + sx;
+
+            map[didx].x = sx;
+            map[didx].y = sy;
+            // map[didx].dist = patch_distance<distance_func>(dst, dx, dy, src, sx, sy);
+            map[didx].dist = patch_distance(dst, dx, dy, src, sx, sy);
+            
+            fx += x_factor;
+        }
+
+        fy += y_factor;
+    }
+}
+
+/**
+ * For each pixel in first, search for optimal nn pixel in second 
+ */ 
+// template<distance_func_t distance_func>
+void nn_search(const cv::Mat &first, const cv::Mat &second, map_t *curMap, map_t *newMap)
 {
     int f, sx, sy;
     float dist = FLT_MAX;
@@ -120,7 +178,8 @@ void nn_search(cv::Mat &first, cv::Mat &second, map_t *curMap, map_t *newMap)
                 if ((curMap[nearIdx].dist < dist) && (curMap[nearIdx].x > 0)) {
                     sx = curMap[ nearIdx ].x - 1; 
                     sy = curMap[ nearIdx ].y; 
-                    dist = patch_distance<distance_func>(first, fx, fy, second, sx, sy);
+                    // dist = patch_distance<distance_func>(first, fx, fy, second, sx, sy);
+                    dist = patch_distance(first, fx, fy, second, sx, sy);
                 }
             }
 
@@ -129,7 +188,8 @@ void nn_search(cv::Mat &first, cv::Mat &second, map_t *curMap, map_t *newMap)
                 if ((curMap[nearIdx].dist < dist) && (curMap[nearIdx].y > 0)) {
                     sx = curMap[ nearIdx ].x; 
                     sy = curMap[ nearIdx ].y - 1; 
-                    dist = patch_distance<distance_func>(first, fx, fy, second, sx, sy);
+                    // dist = patch_distance<distance_func>(first, fx, fy, second, sx, sy);
+                    dist = patch_distance(first, fx, fy, second, sx, sy);
                 }
             }
 
@@ -141,7 +201,8 @@ void nn_search(cv::Mat &first, cv::Mat &second, map_t *curMap, map_t *newMap)
                 pick_random_pixel(radius, second.rows, second.cols,
                     sx, sy, rx, ry);
 
-                float rdist = patch_distance<distance_func>(first, fx, fy, second, rx, ry);
+                // float rdist = patch_distance<distance_func>(first, fx, fy, second, rx, ry);
+                float rdist = patch_distance(first, fx, fy, second, rx, ry);
 
                 if (rdist < dist) {
                     sx = rx;
