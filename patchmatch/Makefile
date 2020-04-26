@@ -1,6 +1,6 @@
 CC = g++ -m64
 NVCC = nvcc
-DEBUG = 0
+DEBUG = 1
 
 CFLAGS = -g -O3 -Wall -DDEBUG=$(DEBUG)
 LDFLAGS = -lm
@@ -12,7 +12,7 @@ NVCC_FLAGS=-O3 -m64 --gpu-architecture compute_61 -ccbin /usr/bin/gcc
 LIBS = GL glut cudart
 LDLIBS  := $(addprefix -l, $(LIBS))
 
-INC_FILES = patchmatch.h
+INC_FILES = util.h patchmatch.h
 CC_FILES = main.cpp patchmatch.cpp
 CU_FILES = patchmatch.cu
 
@@ -20,6 +20,8 @@ CU_OBJDIR = objs
 CU_OBJS = $(CU_OBJDIR)/main.o $(CU_OBJDIR)/patchmatch_cuda.o
 
 LOGS=logs
+
+default: seq
 
 all: seq omp cuda
 

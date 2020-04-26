@@ -2,14 +2,10 @@
 #include <stdlib.h>
 #include <getopt.h>
 #include <opencv2/opencv.hpp>
+#include <time.h>
 
+#include "util.h"
 #include "patchmatch.h"
-
-#if OMP
-#include <omp.h>
-#else
-#include "fake_omp.h"
-#endif
 
 using namespace std;
 using namespace cv;
@@ -26,15 +22,29 @@ void do_patchmatch(string input_file, string src_file, string output_file,
     Mat src = imread(src_file, IMREAD_COLOR);
     Mat dst = imread(input_file, IMREAD_COLOR);
 
+    if (width == -1) width = dst.cols;
+    if (height == -1) height = dst.rows;
+
     Mat src2, dst2;
     resize(src, src2, Size(width, height));
     resize(dst, dst2, Size(width, height));
 
-    patchmatch(src2, dst2, half_patch);
+    #if DEBUG
+    cout << "Width: " << width << endl;
+    cout << "Height: " << height << endl;
+    cout << "HalfPatch: " << half_patch << endl;
+    #endif
 
-    // Mat output;
-    // resize(dst2, output, Size(dst.cols, dst.rows));
-    imwrite(output_file, dst2);
+    clock_t t1 = clock();
+    patchmatch(src2, dst2, half_patch);
+    clock_t t2 = clock();
+
+    Mat output;
+    resize(dst2, output, Size(dst.cols, dst.rows));
+    imwrite(output_file, output);
+
+    double time_elasped = (t2 - t1) * 1.0 / CLOCKS_PER_SEC;
+    cout << "Time: "<< time_elasped << endl;
 }
 
 static void usage(char *name) {
@@ -47,8 +57,8 @@ int main(int argc, char** argv) {
     string input_file = "";
     string src_file = "";
     string output_file = "";
-    int width = 224;
-    int height = 224;
+    int width = -1;
+    int height = -1;
     int half_patch = 1;
 
     int c;

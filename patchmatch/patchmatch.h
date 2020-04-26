@@ -5,8 +5,7 @@
 
 #define NUM_ITERATIONS 10
 #define MAX_SEARCH_RADIUS 256
-#define HALF_PATCH 1
-#define SAVE_ITER_OUTPUT 1
+#define SAVE_ITER_OUTPUT 0
 
 // map entry type
 typedef struct {
