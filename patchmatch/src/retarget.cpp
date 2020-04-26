@@ -115,25 +115,18 @@ void bidirection_similarity_em_step(const cv::Mat &src, cv::Mat &dst, map_t *map
     size_t map_size = dst_height * dst_width * sizeof(map_t);
 
     // allocate and init scratch nn maps
-    map_t *prevMap = (map_t *) malloc(map_size);
     map_t *curMap = (map_t *) malloc(map_size);
-    memcpy(prevMap, map, map_size);
+    memcpy(curMap, map, map_size);
 
     for (int i = 0; i < NUM_ITERATIONS; i++) {
         cout << "BDS iteration " << i << endl;
         // perform one iter of nn search
         // nn_search<sum_squared_diff>(dst, src, prevMap, curMap);
-        nn_search(dst, src, prevMap, curMap);
-
-        // swap two maps to reuse allocated space
-        map_t *tmpMap = prevMap;
-        prevMap = curMap;
-        curMap = tmpMap;
+        nn_search(dst, src, curMap);
     }
 
     bidirection_similarity_vote(src, dst, map);
 
-    free(prevMap);
     free(curMap);
 }
 
@@ -195,7 +188,7 @@ void retarget(const cv::Mat &src, cv::Mat &dst, int dst_height, int dst_width)
         diff_height -= actual_delta_height;
         diff_width -= actual_delta_width;
 
-        if (SAVE_INTERMED_IMG) {
+        if (SAVE_ITER_OUTPUT) {
             char fname[64];
             sprintf(fname, "scratch/retarget-%i-%i.jpg", cur_width, cur_height);
             imwrite(fname, cur);
