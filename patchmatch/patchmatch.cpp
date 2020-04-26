@@ -1,9 +1,11 @@
 #include <opencv2/opencv.hpp>
-#include <patchmatch.h>
 #include <float.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
+
+#include "util.h"
+#include "patchmatch.h"
 
 using namespace cv;
 using namespace std;
@@ -30,11 +32,13 @@ float sum_absolute_diff(const cv::Vec3b &fpixel, const cv::Vec3b &spixel)
     return dist;
 }
 
-// template<distance_func_t distance_func>
 float patch_distance(const cv::Mat &first, const cv::Mat &second, 
     int fx, int fy, int sx, int sy, int half_patch)
 {
     float dist = 0;
+    #if OMP
+    #pragma omp for schedule(static)
+    #endif
     for (int j = -half_patch; j <= half_patch; j++) {
         for (int i = -half_patch; i <= half_patch; i++) {
             int fx1 = min(first.cols - 1, max(0, fx + i));
@@ -69,7 +73,6 @@ void pick_random_pixel(int radius, int height, int width,
 }
 
 // For each pixel in first, random assign a nn pixel in second
-// template<distance_func_t distance_func>
 void init_random_map(const cv::Mat &first, const cv::Mat &second, map_t *map, int half_patch)
 {
     int d_height = first.rows;
@@ -77,6 +80,9 @@ void init_random_map(const cv::Mat &first, const cv::Mat &second, map_t *map, in
     int s_height = second.rows;
     int s_width = second.cols;
 
+    #if OMP
+    #pragma omp for schedule(static)
+    #endif
     for (int y = 0; y < d_height; y++ ) {
         for (int x = 0; x < d_width; x++ ) {
             int rx = random() % s_width;
@@ -91,19 +97,21 @@ void init_random_map(const cv::Mat &first, const cv::Mat &second, map_t *map, in
 }
 
 // For each pixel in dst, assign a nn pixel in src
-// template<distance_func_t distance_func>
 void init_retarget_map(const cv::Mat &dst, const cv::Mat &src, map_t *map, int half_patch)
 {
-    int d_height = dst.rows;
+    // int d_height = dst.rows;
     int d_width = dst.cols;
-    int s_height = src.rows;
-    int s_width = src.cols;
+    // int s_height = src.rows;
+    // int s_width = src.cols;
 
     float y_factor = (float) src.rows / (float) dst.rows;
     float x_factor = (float) src.cols / (float) dst.cols;
     float fy = 0;
     float fx = 0;
 
+    #if OMP
+    #pragma omp for schedule(static)
+    #endif
     for (int dy = 0; dy < dst.rows; dy++) {
         int sy = (int) floor(fy);
         fx = 0;
@@ -111,7 +119,7 @@ void init_retarget_map(const cv::Mat &dst, const cv::Mat &src, map_t *map, int h
         for (int dx = 0; dx < dst.cols; dx++) {
             int sx = (int) floor(fx);
             int didx = dy * d_width + dx;
-            int sidx = sy * s_width + sx;
+            // int sidx = sy * s_width + sx;
 
             map[didx].x = sx;
             map[didx].y = sy;
@@ -127,15 +135,18 @@ void init_retarget_map(const cv::Mat &dst, const cv::Mat &src, map_t *map, int h
 /**
  * For each pixel in first, search for optimal nn pixel in second 
  */ 
-// template<distance_func_t distance_func>
 void nn_search(const cv::Mat &first, const cv::Mat &second, map_t *curMap, int half_patch)
 {
     int f_width = first.cols;
     int f_height = first.rows;
     int s_width = second.cols;
     int s_height = second.rows;
-    int search_radius = min(MAX_SEARCH_RADIUS, min(s_width, s_height));
+    // int search_radius = min(MAX_SEARCH_RADIUS, min(s_width, s_height));
+    int search_radius = max(s_width, s_height);
 
+    #if OMP
+    #pragma omp for schedule(static)
+    #endif
     for (int fy = 0; fy < f_height; fy++) {
         for (int fx = 0; fx < f_width; fx++) {
             int f = (fy * f_width) + fx;
@@ -207,6 +218,9 @@ void nn_map(const cv::Mat &src, cv::Mat &dst, map_t *map)
     int dst_height = dst.rows;
     int dst_width = dst.cols;
 
+    #if OMP
+    #pragma omp for schedule(static)
+    #endif
     for (int dy = 0; dy < dst_height; dy++) {
         for (int dx = 0; dx < dst_width; dx++) {
             int idx = dy * dst_width + dx;
@@ -228,11 +242,14 @@ void nn_map(const cv::Mat &src, cv::Mat &dst, map_t *map)
 
 void nn_map_average(const cv::Mat &src, cv::Mat &dst, map_t *map, int half_patch)
 {
-    int src_height = src.rows;
-    int src_width = src.cols;
+    // int src_height = src.rows;
+    // int src_width = src.cols;
     int dst_height = dst.rows;
     int dst_width = dst.cols;
 
+    #if OMP
+    #pragma omp for schedule(static)
+    #endif
     for (int dy = 0; dy < dst_height; dy++) {
         int fy_min = max(dy - half_patch, 0);
         int fy_max = min(dy + half_patch, dst_height - 1);
