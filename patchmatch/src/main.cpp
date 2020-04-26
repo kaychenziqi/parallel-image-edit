@@ -5,6 +5,12 @@
 #include <retarget.h>
 #include <opencv2/opencv.hpp>
 
+#if OMP
+#include <omp.h>
+#else
+#include <fake_omp.h>
+#endif
+
 using namespace std;
 using namespace cv;
 
