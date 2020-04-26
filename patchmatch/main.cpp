@@ -3,7 +3,6 @@
 #include <getopt.h>
 #include <opencv2/opencv.hpp>
 
-#include "retarget.h"
 #include "patchmatch.h"
 
 #if OMP
@@ -19,20 +18,6 @@ void display_image(string imgfile) {
     Mat img;
     img = imread(imgfile, IMREAD_COLOR);
     imshow(imgfile, img);
-}
-
-void do_retarget(string input_file, string output_file, int height, int width) {
-    Mat src = imread(input_file, IMREAD_COLOR);
-    Mat dst;
-    retarget(src, dst, height, width);
-    imwrite(output_file, dst);
-}
-
-void do_resize(string input_file, string output_file, int height, int width) {
-    Mat src = imread(input_file, IMREAD_COLOR);
-    Mat dst;
-    resize(src, dst, Size(width, height));
-    imwrite(output_file, dst);
 }
 
 void do_patchmatch(string input_file, string src_file, string output_file, 
@@ -108,8 +93,6 @@ int main(int argc, char** argv) {
     }
 
     // display_image(src_file);
-    // do_retarget(input_file, output_file, height, width);
-    // do_resize(input_file, output_file + "-resize.jpg", height, width);
     do_patchmatch(input_file, src_file, output_file, 
         width, height, half_patch);
 
