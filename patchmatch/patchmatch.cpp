@@ -1,9 +1,10 @@
 #include <opencv2/opencv.hpp>
-#include <patchmatch.h>
 #include <float.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
+
+#include "patchmatch.h"
 
 using namespace cv;
 using namespace std;
@@ -94,10 +95,10 @@ void init_random_map(const cv::Mat &first, const cv::Mat &second, map_t *map, in
 // template<distance_func_t distance_func>
 void init_retarget_map(const cv::Mat &dst, const cv::Mat &src, map_t *map, int half_patch)
 {
-    int d_height = dst.rows;
+    // int d_height = dst.rows;
     int d_width = dst.cols;
-    int s_height = src.rows;
-    int s_width = src.cols;
+    // int s_height = src.rows;
+    // int s_width = src.cols;
 
     float y_factor = (float) src.rows / (float) dst.rows;
     float x_factor = (float) src.cols / (float) dst.cols;
@@ -111,7 +112,7 @@ void init_retarget_map(const cv::Mat &dst, const cv::Mat &src, map_t *map, int h
         for (int dx = 0; dx < dst.cols; dx++) {
             int sx = (int) floor(fx);
             int didx = dy * d_width + dx;
-            int sidx = sy * s_width + sx;
+            // int sidx = sy * s_width + sx;
 
             map[didx].x = sx;
             map[didx].y = sy;
@@ -228,8 +229,8 @@ void nn_map(const cv::Mat &src, cv::Mat &dst, map_t *map)
 
 void nn_map_average(const cv::Mat &src, cv::Mat &dst, map_t *map, int half_patch)
 {
-    int src_height = src.rows;
-    int src_width = src.cols;
+    // int src_height = src.rows;
+    // int src_width = src.cols;
     int dst_height = dst.rows;
     int dst_width = dst.cols;
 

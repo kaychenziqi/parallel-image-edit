@@ -3,8 +3,9 @@
 #include <math.h>
 #include <float.h>
 #include <opencv2/opencv.hpp>
-#include <retarget.h>
-#include <patchmatch.h>
+
+#include "patchmatch.h"
+#include "retarget.h"
 
 using namespace cv;
 using namespace std;

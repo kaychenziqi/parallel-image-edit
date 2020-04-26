@@ -1,14 +1,15 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <getopt.h>
-#include <patchmatch.h>
-#include <retarget.h>
 #include <opencv2/opencv.hpp>
+
+#include "retarget.h"
+#include "patchmatch.h"
 
 #if OMP
 #include <omp.h>
 #else
-#include <fake_omp.h>
+#include "fake_omp.h"
 #endif
 
 using namespace std;
