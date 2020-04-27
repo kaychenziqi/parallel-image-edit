@@ -10,6 +10,26 @@
 using namespace cv;
 using namespace std;
 
+// distance functions
+float sum_squared_diff(const cv::Vec3b &fpixel, const cv::Vec3b &spixel);
+float sum_absolute_diff(const cv::Vec3b &fpixel, const cv::Vec3b &spixel);
+float patch_distance(const cv::Mat &first, const cv::Mat &second, 
+    int fx, int fy, int sx, int sy, int half_patch = 1);
+
+// intialize nearest neighbor field
+void init_random_map(const cv::Mat &first, const cv::Mat &second, map_t *map, 
+    int half_patch = 1);
+void init_retarget_map(const cv::Mat &dst, const cv::Mat &src, map_t *map, 
+    int half_patch = 1);
+
+// nearest neighbor field
+void nn_search(const cv::Mat &first, const cv::Mat &second, map_t *curMap, 
+    int half_patch = 1);
+void nn_map(const cv::Mat &src, cv::Mat &dst, map_t *map);
+void nn_map_average(const cv::Mat &src, cv::Mat &dst, map_t *map, 
+    int half_patch = 1);
+
+
 inline float square(float x) { return x * x; }
 
 float sum_squared_diff(const cv::Vec3b &fpixel, const cv::Vec3b &spixel)
@@ -22,7 +42,7 @@ float sum_squared_diff(const cv::Vec3b &fpixel, const cv::Vec3b &spixel)
     return dist;
 }
 
-float sum_absolute_diff(const cv::Vec3b &fpixel, const cv::Vec3b &spixel)
+inline float sum_absolute_diff(const cv::Vec3b &fpixel, const cv::Vec3b &spixel)
 {
     float dist = sqrt(
         abs(fpixel[0] - spixel[0]) +
@@ -32,7 +52,7 @@ float sum_absolute_diff(const cv::Vec3b &fpixel, const cv::Vec3b &spixel)
     return dist;
 }
 
-float patch_distance(const cv::Mat &first, const cv::Mat &second, 
+inline float patch_distance(const cv::Mat &first, const cv::Mat &second, 
     int fx, int fy, int sx, int sy, int half_patch)
 {
     float dist = 0;
@@ -290,7 +310,7 @@ void patchmatch(const cv::Mat &src, cv::Mat &dst, int half_patch)
     int dst_width = dst.cols;
 
     map_t *curMap = (map_t *) malloc(dst_height * dst_width * sizeof(map_t));
-    init_random_map(dst, src, curMap);
+    init_random_map(dst, src, curMap, half_patch);
 
     for (int i = 1; i <= NUM_ITERATIONS; i++) {
         cout << "PATCHMATCH iteration " << i << endl;
@@ -300,13 +320,13 @@ void patchmatch(const cv::Mat &src, cv::Mat &dst, int half_patch)
             char fname[64];
             sprintf(fname, "scratch/pm-iter-%i.jpg", i);
             Mat cur = dst.clone();
-            nn_map_average(src, cur, curMap);
+            nn_map_average(src, cur, curMap, half_patch);
             imwrite(fname, cur);
             cur.release();
         }
     }
 
-    nn_map_average(src, dst, curMap);
+    nn_map_average(src, dst, curMap, half_patch);
 
     free(curMap);
 }

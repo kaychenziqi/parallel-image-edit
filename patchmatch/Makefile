@@ -9,7 +9,7 @@ OPENCV_FLAGS = -DOPENCV `pkg-config opencv --cflags --libs`
 CU_LDFLAGS = -L/usr/local/depot/cuda-10.2/lib64/ -lcudart
 NVCC_FLAGS=-O3 -m64 --gpu-architecture compute_61 -ccbin /usr/bin/gcc
 
-LIBS = GL glut cudart
+LIBS = cudart # GL glut 
 LDLIBS  := $(addprefix -l, $(LIBS))
 
 INC_FILES = util.h patchmatch.h
@@ -32,7 +32,7 @@ $(CU_OBJDIR)/%.o: %.cpp
 	$(CC) $< $(CFLAGS) -c -o $@ $(OPENCV_FLAGS)
 
 $(CU_OBJDIR)/%.o: %.cu
-	$(NVCC) $< $(NVCC_FLAGS) -c -o $@ $(OPENCV_FLAGS)
+	$(NVCC) $< $(NVCC_FLAGS) -c -o $@
 
 seq: $(CC_FILES) $(INC_FILES) fake_omp.h fake_omp.cpp
 	$(CC) $(CFLAGS) -o PatchMatchSeq $(CC_FILES) fake_omp.cpp $(LDFLAGS) $(OPENCV_FLAGS)

@@ -16,18 +16,55 @@ void display_image(string imgfile) {
     imshow(imgfile, img);
 }
 
+void mat_to_uchar3_array(const cv::Mat &mat, uchar3t **arr_ptr)
+{
+    int ny = mat.rows;
+    int nx = mat.cols;
+    uchar3t *arr = (uchar3t *) malloc(ny * nx * sizeof(uchar3t));
+
+    int idx = 0;
+    for (int y = 0; y < ny; y++) {
+        for (int x = 0; x < nx; x++) {
+            Vec3b pixel = mat.at<Vec3b>(y, x);
+            arr[idx].x = pixel[0];
+            arr[idx].y = pixel[1];
+            arr[idx].z = pixel[2];
+            idx++;
+        }
+    }
+
+    *arr_ptr = arr;
+}
+
+void uchar3_array_to_mat(uchar3t *arr, cv::Mat &mat)
+{
+    int ny = mat.rows;
+    int nx = mat.cols;
+
+    int idx = 0;
+    for (int y = 0; y < ny; y++) {
+        for (int x = 0; x < nx; x++) {
+            uchar3t pixel = arr[idx];
+            mat.at<Vec3b>(y, x)[0] = pixel.x;
+            mat.at<Vec3b>(y, x)[1] = pixel.y;
+            mat.at<Vec3b>(y, x)[2] = pixel.z;
+            idx++;
+        }
+    }
+}
+
 void do_patchmatch(string input_file, string src_file, string output_file, 
     int width, int height, int half_patch) 
 {
-    Mat src = imread(src_file, IMREAD_COLOR);
-    Mat dst = imread(input_file, IMREAD_COLOR);
+    Mat srcMat = imread(src_file, IMREAD_COLOR);
+    Mat dstMat = imread(input_file, IMREAD_COLOR);
 
-    if (width == -1) width = dst.cols;
-    if (height == -1) height = dst.rows;
+    if (width == -1) width = dstMat.cols;
+    if (height == -1) height = dstMat.rows;
 
-    Mat src2, dst2;
-    resize(src, src2, Size(width, height));
-    resize(dst, dst2, Size(width, height));
+    Mat srcMat2, dstMat2;
+    resize(srcMat, srcMat2, Size(width, height));
+    resize(dstMat, dstMat2, Size(width, height));
 
     #if DEBUG
     cout << "Width: " << width << endl;
@@ -36,12 +73,12 @@ void do_patchmatch(string input_file, string src_file, string output_file,
     #endif
 
     clock_t t1 = clock();
-    patchmatch(src2, dst2, half_patch);
+    patchmatch(srcMat2, dstMat2, half_patch);
     clock_t t2 = clock();
 
-    Mat output;
-    resize(dst2, output, Size(dst.cols, dst.rows));
-    imwrite(output_file, output);
+    Mat outputMat;
+    resize(dstMat2, outputMat, Size(dstMat.cols, dstMat.rows));
+    imwrite(output_file, outputMat);
 
     double time_elasped = (t2 - t1) * 1.0 / CLOCKS_PER_SEC;
     cout << "Time: "<< time_elasped << endl;

@@ -1,296 +1,386 @@
 #include <opencv2/opencv.hpp>
-#include <float.h>
-#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
+
+#include <curand_kernel.h>
 
 #include "patchmatch.h"
 
 using namespace cv;
 using namespace std;
 
-inline float square(float x) { return x * x; }
+__device__ __inline__ float square(float x) { return x * x; }
 
-float sum_squared_diff(const cv::Vec3b &fpixel, const cv::Vec3b &spixel)
+__device__ __inline__ int get_max(int x,int y)
+{
+    if(x > y) return x;
+    return y;
+}
+
+__device__ __inline__ int get_min(int x,int y)
+{
+    if(x < y) return x;
+    return y;
+}
+
+__device__ __inline__ void init_rand(curandState *state) 
+{
+    int i = threadIdx.x + blockIdx.x * blockDim.x;
+    int j = threadIdx.y + blockIdx.y * blockDim.y;
+    curand_init(i, j, 0, state);
+}
+
+__device__ __inline__ float get_rand(curandState *state)
+{
+	return curand_uniform(state);
+}
+
+__device__ __inline__
+float sum_squared_diff(uchar3 fpixel, uchar3 spixel)
 {
     float dist = sqrt(
-        square(fpixel[0] - spixel[0]) +
-        square(fpixel[1] - spixel[1]) +
-        square(fpixel[2] - spixel[2])
+        square(fpixel.x - spixel.x) +
+        square(fpixel.y - spixel.y) +
+        square(fpixel.z - spixel.z)
     );
     return dist;
 }
 
-float sum_absolute_diff(const cv::Vec3b &fpixel, const cv::Vec3b &spixel)
+__device__ __inline__
+float sum_absolute_diff(uchar3 fpixel, uchar3 spixel)
 {
     float dist = sqrt(
-        abs(fpixel[0] - spixel[0]) +
-        abs(fpixel[1] - spixel[1]) +
-        abs(fpixel[2] - spixel[2])
+        abs(fpixel.x - spixel.x) +
+        abs(fpixel.y - spixel.y) +
+        abs(fpixel.z - spixel.z)
     );
     return dist;
 }
 
-// template<distance_func_t distance_func>
-float patch_distance(const cv::Mat &first, const cv::Mat &second, 
-    int fx, int fy, int sx, int sy, int half_patch)
+__device__
+float patch_distance(uchar3 *first, uchar3 *second, 
+    int fx, int fy, int sx, int sy, 
+    int width, int height, int half_patch)
 {
     float dist = 0;
     for (int j = -half_patch; j <= half_patch; j++) {
         for (int i = -half_patch; i <= half_patch; i++) {
-            int fx1 = min(first.cols - 1, max(0, fx + i));
-            int fy1 = min(first.rows - 1, max(0, fy + i));
-            Vec3b fpixel = first.at<Vec3b>(fy1, fx1);
+            int fx1 = get_min(width - 1, get_max(0, fx + i));
+            int fy1 = get_min(height - 1, get_max(0, fy + i));
+            int f = fy1 * width + fx1;
 
-            int sx1 = min(second.cols - 1, max(0, sx + i));
-            int sy1 = min(second.rows - 1, max(0, sy + i));
-            Vec3b spixel = second.at<Vec3b>(sy1, sx1);
+            int sx1 = get_min(width - 1, get_max(0, sx + i));
+            int sy1 = get_min(height - 1, get_max(0, sy + i));
+            int s = sy1 * width + sx1;
 
-            // dist += distance_func(fpixel, spixel);
-            dist += sum_squared_diff(fpixel, spixel);
+            dist += sum_squared_diff(first[f], second[s]);
         }
     }
     return dist;
 }
 
-
-void pick_random_pixel(int radius, int height, int width, 
-    int sx, int sy, int *rx_ptr, int *ry_ptr)
+__device__
+void init_random_map(uchar3 *first, uchar3 *second, map_t *map, 
+    int width, int height, int half_patch)
 {
-    int xmin = max(sx - radius, 0);
-    int xmax = min(sx + radius, width);
-    int ymin = max(sy - radius, 0);
-    int ymax = min(sy + radius, height);
+    int y = threadIdx.y + blockIdx.y * blockDim.y;
+    int x = threadIdx.x + blockIdx.x * blockDim.x;
+    if (y >= height || x >= width) return;
 
-    int xlen = xmax - xmin;
-    int ylen = ymax - ymin;
+    curandState state;
+    init_rand(&state);
 
-    *rx_ptr = (random() % xlen) + xmin;
-    *ry_ptr = (random() % ylen) + ymin;
+    int rx = (int)(get_rand(&state) * width) % width;
+    int ry = (int)(get_rand(&state) * height) % height;
+    int idx = y * width + x;
+
+    map[idx].x = rx;
+    map[idx].y = ry;
+    map[idx].dist = patch_distance(first, second, x, y, rx, ry, 
+        width, height, half_patch);
 }
 
-// For each pixel in first, random assign a nn pixel in second
-// template<distance_func_t distance_func>
-void init_random_map(const cv::Mat &first, const cv::Mat &second, map_t *map, int half_patch)
+__device__
+void nn_search(uchar3 *first, uchar3 *second, map_t *map, 
+    int width, int height, int half_patch)
 {
-    int d_height = first.rows;
-    int d_width = first.cols;
-    int s_height = second.rows;
-    int s_width = second.cols;
+    int fy = threadIdx.y + blockIdx.y * blockDim.y;
+    int fx = threadIdx.x + blockIdx.x * blockDim.x;
+    if (fy >= height || fx >= width) return;
 
-    for (int y = 0; y < d_height; y++ ) {
-        for (int x = 0; x < d_width; x++ ) {
-            int rx = random() % s_width;
-            int ry = random() % s_height;
-            int idx = y * d_width + x;
+    int search_radius = get_max(width, height);
 
-            map[idx].x = rx;
-            map[idx].y = ry;
-            map[idx].dist = patch_distance(first, second, x, y, rx, ry, half_patch);
-        }
-    }
-}
+    curandState state;
+    init_rand(&state);
 
-// For each pixel in dst, assign a nn pixel in src
-// template<distance_func_t distance_func>
-void init_retarget_map(const cv::Mat &dst, const cv::Mat &src, map_t *map, int half_patch)
-{
-    // int d_height = dst.rows;
-    int d_width = dst.cols;
-    // int s_height = src.rows;
-    // int s_width = src.cols;
+    int f = (fy * width) + fx;
+    int best_x = map[f].x; 
+    int best_y = map[f].y; 
+    float best_dist = map[f].dist;
 
-    float y_factor = (float) src.rows / (float) dst.rows;
-    float x_factor = (float) src.cols / (float) dst.cols;
-    float fy = 0;
-    float fx = 0;
-
-    for (int dy = 0; dy < dst.rows; dy++) {
-        int sy = (int) floor(fy);
-        fx = 0;
-
-        for (int dx = 0; dx < dst.cols; dx++) {
-            int sx = (int) floor(fx);
-            int didx = dy * d_width + dx;
-            // int sidx = sy * s_width + sx;
-
-            map[didx].x = sx;
-            map[didx].y = sy;
-            map[didx].dist = patch_distance(dst, src, dx, dy, sx, sy, half_patch);
+    // propagate
+    if (fx > 0) {
+        // find neighbor's patch
+        int pf = f - 1;
+        int px = map[pf].x + 1;
+        int py = map[pf].y;
+        
+        if (px < width) { 
+            float dist = patch_distance(first, second, fx, fy, px, py, 
+                width, height, half_patch);
             
-            fx += x_factor;
+            if (dist < best_dist) {
+                best_x = px; 
+                best_y = py;
+                best_dist = dist;
+            }
         }
-
-        fy += y_factor;
     }
-}
 
-/**
- * For each pixel in first, search for optimal nn pixel in second 
- */ 
-// template<distance_func_t distance_func>
-void nn_search(const cv::Mat &first, const cv::Mat &second, map_t *curMap, int half_patch)
-{
-    int f_width = first.cols;
-    int f_height = first.rows;
-    int s_width = second.cols;
-    int s_height = second.rows;
-    int search_radius = min(MAX_SEARCH_RADIUS, min(s_width, s_height));
-
-    for (int fy = 0; fy < f_height; fy++) {
-        for (int fx = 0; fx < f_width; fx++) {
-            int f = (fy * f_width) + fx;
-            int best_x = curMap[f].x; 
-            int best_y = curMap[f].y; 
-            float best_dist = curMap[f].dist;
-
-            // propagate
-            if (fx > 0) {
-                // find neighbor's patch
-                int pf = f - 1;
-                int px = curMap[pf].x + 1;
-                int py = curMap[pf].y;
-                
-                if (px < s_width) { 
-                    float dist = patch_distance(first, second, fx, fy, px, py, half_patch);
-                    
-                    if (dist < best_dist) {
-                        best_x = px; 
-                        best_y = py;
-                        best_dist = dist;
-                    }
-                }
-            }
-
-            if (fy > 0) {
-                // find neighbor's patch
-                int pf = f - f_width;
-                int px = curMap[pf].x;
-                int py = curMap[pf].y + 1;
-                
-                if (py < s_height) { 
-                    float dist = patch_distance(first, second, fx, fy, px, py, half_patch);
-                    
-                    if (dist < best_dist) {
-                        best_x = px; 
-                        best_y = py;
-                        best_dist = dist;
-                    }
-                }
-            }
-
-            // random search
-            for (int radius = search_radius; radius >= 1; radius /= 2) {
-                int rx, ry;
-                pick_random_pixel(radius, s_height, s_width, 
-                    best_x, best_y, &rx, &ry);
-
-                float dist = patch_distance(first, second, fx, fy, rx, ry, half_patch);
-
-                if (dist < best_dist) {
-                    best_x = rx;
-                    best_y = ry;
-                    best_dist = dist;
-                }
-            }
+    if (fy > 0) {
+        // find neighbor's patch
+        int pf = f - width;
+        int px = map[pf].x;
+        int py = map[pf].y + 1;
+        
+        if (py < height) { 
+            float dist = patch_distance(first, second, fx, fy, px, py, 
+                width, height, half_patch);
             
-            curMap[f].x = best_x;
-            curMap[f].y = best_y;
-            curMap[f].dist = best_dist;
-        }
-    }
-}
-
-void nn_map(const cv::Mat &src, cv::Mat &dst, map_t *map)
-{
-    int src_height = src.rows;
-    int src_width = src.cols;
-    int dst_height = dst.rows;
-    int dst_width = dst.cols;
-
-    for (int dy = 0; dy < dst_height; dy++) {
-        for (int dx = 0; dx < dst_width; dx++) {
-            int idx = dy * dst_width + dx;
-
-            if (map[idx].x < 0 || map[idx].x >= src_width) {
-                cout << "Bad X position " << map[idx].x 
-                    << " at (" << dx << ", " << dy << ")" << endl;
-            }
-            else if (map[idx].y < 0 || map[idx].y >= src_height) {
-                cout << "Bad Y position " << map[idx].y 
-                    << " at (" << dx << ", " << dy << ")" << endl;
-            }
-            else {
-                dst.at<Vec3b>(dy, dx) = src.at<Vec3b>(map[idx].y, map[idx].x);
+            if (dist < best_dist) {
+                best_x = px; 
+                best_y = py;
+                best_dist = dist;
             }
         }
     }
-}
 
-void nn_map_average(const cv::Mat &src, cv::Mat &dst, map_t *map, int half_patch)
-{
-    // int src_height = src.rows;
-    // int src_width = src.cols;
-    int dst_height = dst.rows;
-    int dst_width = dst.cols;
+    // random search
+    for (int radius = search_radius; radius >= 1; radius /= 2) {
+        // pick a random pixel
+        int xmin = get_max(best_x - radius, 0);
+        int xmax = get_min(best_x + radius, width);
+        int ymin = get_max(best_y - radius, 0);
+        int ymax = get_min(best_y + radius, height);
+        int xlen = (xmax - xmin);
+        int ylen = (ymax - ymin);
+        int rx = (int)(get_rand(&state) * xlen) % xlen + xmin;
+        int ry = (int)(get_rand(&state) * ylen) % ylen + ymin;
 
-    for (int dy = 0; dy < dst_height; dy++) {
-        int fy_min = max(dy - half_patch, 0);
-        int fy_max = min(dy + half_patch, dst_height - 1);
-        int fy_len = fy_max - fy_min + 1;
+        float dist = patch_distance(first, second, fx, fy, rx, ry, 
+            width, height, half_patch);
 
-        for (int dx = 0; dx < dst_width; dx++) {
-            int fx_min = max(dx - half_patch, 0);
-            int fx_max = min(dx + half_patch, dst_width - 1);
-            int fx_len = fx_max - fx_min + 1;
-
-            int pixel_sums[3];
-            pixel_sums[0] = pixel_sums[1] = pixel_sums[2] = 0;
-            
-            for (int fy = fy_min; fy <= fy_max; fy++) {
-                for (int fx = fx_min; fx <= fx_max; fx++) {
-                    int f = fy * dst_width + fx;
-                    int px = map[f].x;
-                    int py = map[f].y;
-
-                    Vec3b spixel = src.at<Vec3b>(py, px);
-                    pixel_sums[0] += spixel[0];
-                    pixel_sums[1] += spixel[1];
-                    pixel_sums[2] += spixel[2];
-                }
-            }
-
-            int num_pixels = fy_len * fx_len;
-            dst.at<Vec3b>(dy, dx)[0] = pixel_sums[0] / num_pixels;
-            dst.at<Vec3b>(dy, dx)[1] = pixel_sums[1] / num_pixels;
-            dst.at<Vec3b>(dy, dx)[2] = pixel_sums[2] / num_pixels;
+        if (dist < best_dist) {
+            best_x = rx;
+            best_y = ry;
+            best_dist = dist;
         }
     }
+    
+    map[f].x = best_x;
+    map[f].y = best_y;
+    map[f].dist = best_dist;
+        
 }
 
-void patchmatch(const cv::Mat &src, cv::Mat &dst, int half_patch)
+__device__
+void nn_map(uchar3 *src, uchar3 *dst, map_t *map, 
+    int width, int height, int half_patch)
 {
-    int dst_height = dst.rows;
-    int dst_width = dst.cols;
+    int dy = threadIdx.y + blockIdx.y * blockDim.y;
+    int dx = threadIdx.x + blockIdx.x * blockDim.x;
+    if (dy >= height || dx >= width) return;
+    int idx = dy * width + dx;
 
-    map_t *curMap = (map_t *) malloc(dst_height * dst_width * sizeof(map_t));
-    init_random_map(dst, src, curMap);
+    if (map[idx].x < 0 || map[idx].x >= width ||
+        map[idx].y < 0 || map[idx].y >= height) {
+        return;
+    }
+    else {
+        int midx = map[idx].y * width + map[idx].x;
+        dst[idx] = src[midx];
+    }  
+}
 
+__device__
+void nn_map_average(uchar3 *src, uchar3 *dst, map_t *map, 
+    int width, int height, int half_patch)
+{
+    int dy = threadIdx.y + blockIdx.y * blockDim.y;
+    int dx = threadIdx.x + blockIdx.x * blockDim.x;
+    if (dy >= height || dx >= width) return;
+    
+    int fy_min = get_max(dy - half_patch, 0);
+    int fy_max = get_min(dy + half_patch, height - 1);
+    int fy_len = fy_max - fy_min + 1;
+
+    int fx_min = get_max(dx - half_patch, 0);
+    int fx_max = get_min(dx + half_patch, width - 1);
+    int fx_len = fx_max - fx_min + 1;
+
+    int pixel_sums[3];
+    pixel_sums[0] = pixel_sums[1] = pixel_sums[2] = 0;
+    
+    for (int fy = fy_min; fy <= fy_max; fy++) {
+        for (int fx = fx_min; fx <= fx_max; fx++) {
+            int f = fy * width + fx;
+            int px = map[f].x;
+            int py = map[f].y;
+
+            int p = py * width + px;
+            uchar3 spixel = src[p];
+            pixel_sums[0] += spixel.x;
+            pixel_sums[1] += spixel.y;
+            pixel_sums[2] += spixel.z;
+        }
+    }
+
+    int d = dy * width + dx;
+    int num_pixels = fy_len * fx_len;
+    dst[d].x = pixel_sums[0] / num_pixels;
+    dst[d].y = pixel_sums[1] / num_pixels;
+    dst[d].z = pixel_sums[2] / num_pixels;
+}
+
+__global__ 
+void init_kernel(uchar3 *dst, uchar3 *src, map_t *map, 
+    int width, int height, int half_patch)
+{
+    dst[0].x = 30;
+    dst[0].y = 45;
+    dst[0].z = 100;
+    printf("1\n");
+}
+
+__global__ 
+void patchmatch_kernel(uchar3 *dst, uchar3 *src, map_t *map, 
+    int width, int height, int half_patch)
+{
+    init_random_map(dst, src, map, width, height, half_patch);
+    __syncthreads();
     for (int i = 1; i <= NUM_ITERATIONS; i++) {
-        cout << "PATCHMATCH iteration " << i << endl;
-        nn_search(dst, src, curMap);
+        nn_search(dst, src, map, width, height, half_patch);
+        __syncthreads();
+    }
+    nn_map_average(src, dst, map, width, height, half_patch);
+}
 
-        if (SAVE_ITER_OUTPUT && (i % 4) == 0) {
-            char fname[64];
-            sprintf(fname, "scratch/pm-iter-%i.jpg", i);
-            Mat cur = dst.clone();
-            nn_map_average(src, cur, curMap);
-            imwrite(fname, cur);
-            cur.release();
+void mat_to_uchar3_array(const cv::Mat &mat, uchar3 **arr_ptr)
+{
+    int ny = mat.rows;
+    int nx = mat.cols;
+    uchar3 *arr = (uchar3 *) malloc(ny * nx * sizeof(uchar3));
+
+    int idx = 0;
+    for (int y = 0; y < ny; y++) {
+        for (int x = 0; x < nx; x++) {
+            Vec3b pixel = mat.at<Vec3b>(y, x);
+            arr[idx].x = pixel[0];
+            arr[idx].y = pixel[1];
+            arr[idx].z = pixel[2];
+            idx++;
         }
     }
 
-    nn_map_average(src, dst, curMap);
+    *arr_ptr = arr;
+}
 
-    free(curMap);
+void uchar3_array_to_mat(uchar3 *arr, cv::Mat &mat)
+{
+    int ny = mat.rows;
+    int nx = mat.cols;
+
+    int idx = 0;
+    for (int y = 0; y < ny; y++) {
+        for (int x = 0; x < nx; x++) {
+            uchar3 pixel = arr[idx];
+            mat.at<Vec3b>(y, x)[0] = pixel.x;
+            mat.at<Vec3b>(y, x)[1] = pixel.y;
+            mat.at<Vec3b>(y, x)[2] = pixel.z;
+            idx++;
+        }
+    }
+}
+
+void print_uchar3(uchar3 *arr, int len)
+{
+    for (int i = 0; i < len; i++) {
+        cout << (int) arr[i].x << "," << (int) arr[i].y << "," << (int) arr[i].z << endl;
+    }
+}
+
+void print_map(map_t *map, int len)
+{
+    for (int i = 0; i < len; i++) {
+        cout << map[i].x << "," << map[i].y << "," << map[i].dist << endl;
+    }
+}
+
+void patchmatch(const cv::Mat &srcMat, cv::Mat &dstMat, int half_patch)
+{
+    if (srcMat.rows != dstMat.rows || srcMat.cols != dstMat.cols) {
+        cout << "Error: size not match." << endl;
+        return;
+    }
+
+    int height = dstMat.rows;
+    int width = dstMat.cols;
+    int len = height * width;
+
+    uchar3 *src, *dst;
+    mat_to_uchar3_array(srcMat, &src);
+    mat_to_uchar3_array(dstMat, &dst);
+    map_t *map = (map_t *) malloc(height * width * sizeof(map_t));
+
+    cout << "src" << endl;
+    print_uchar3(src, 10);
+    cout << "dst" << endl;
+    print_uchar3(dst, 10);
+
+    uchar3 *d_src, *d_dst;
+    map_t *d_map;
+    cudaMalloc((void **)&d_src, len * sizeof(uchar3));
+    cudaMalloc((void **)&d_dst, len * sizeof(uchar3));
+    cudaMalloc((void **)&d_map, len * sizeof(map_t));
+
+    cudaMemcpy(d_src, src, len * sizeof(uchar3), cudaMemcpyHostToDevice);
+    cudaMemcpy(d_dst, dst, len * sizeof(uchar3), cudaMemcpyHostToDevice); 
+    
+    int blocksize = 32;
+    dim3 blockDim(blocksize, blocksize, 1);
+    dim3 gridDim(
+        (height + blocksize - 1) / blocksize,
+        (width + blocksize - 1) / blocksize, 
+        1);
+
+    init_kernel<<<blockDim, gridDim>>>(d_dst, d_src, d_map, width, height, half_patch);
+    cudaDeviceSynchronize();
+    
+    cudaMemcpy(dst, d_dst, len * sizeof(uchar3), cudaMemcpyDeviceToHost);
+    cudaMemcpy(map, d_map, len * sizeof(map_t), cudaMemcpyDeviceToHost);
+
+    cout << "dst" << endl;
+    print_uchar3(dst, 10);
+    cout << "map" << endl;
+    print_map(map, 10);
+
+    patchmatch_kernel<<<blockDim, gridDim>>>(d_dst, d_src, d_map, width, height, half_patch);
+    cudaDeviceSynchronize();
+
+    cudaMemcpy(dst, d_dst, len * sizeof(uchar3), cudaMemcpyDeviceToHost);
+    cudaMemcpy(map, d_map, len * sizeof(map_t), cudaMemcpyDeviceToHost);
+
+    cout << "dst" << endl;
+    print_uchar3(dst, 10);
+    cout << "map" << endl;
+    print_map(map, 10);
+
+    uchar3_array_to_mat(dst, dstMat);
+
+    cudaFree(d_map);
+    cudaFree(d_src);
+    cudaFree(d_dst);
+
+    free(src);
+    free(dst);
 }
