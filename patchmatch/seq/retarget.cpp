@@ -10,6 +10,35 @@
 using namespace cv;
 using namespace std;
 
+// For each pixel in dst, assign a nn pixel in src
+void init_retarget_map(float *dst, float *src, map_t *map, 
+    int height, int width, int half_patch)
+{
+    float y_factor = (float) src.rows / (float) dst.rows;
+    float x_factor = (float) src.cols / (float) dst.cols;
+    float fy = 0;
+    float fx = 0;
+
+    for (int dy = 0; dy < dst.rows; dy++) {
+        int sy = dy;
+        fx = 0;
+
+        for (int dx = 0; dx < dst.cols; dx++) {
+            int sx = dx;
+            int didx = dy * width + dx;
+            // int sidx = sy * width + sx;
+
+            map[didx].x = sx;
+            map[didx].y = sy;
+            map[didx].dist = patch_distance(dst, src, dx, dy, sx, sy, half_patch);
+            
+            fx += x_factor;
+        }
+
+        fy += y_factor;
+    }
+}
+
 void generate_reverse_map(map_t *map, int m_height, int m_width,
     map_t *revMap, int r_height, int r_width)
 {

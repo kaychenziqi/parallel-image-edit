@@ -2,10 +2,10 @@
 #include <stdlib.h>
 #include <getopt.h>
 #include <opencv2/opencv.hpp>
-#include <time.h>
 
 #include "util.h"
 #include "patchmatch.h"
+#include "cycletimer.h"
 
 using namespace std;
 using namespace cv;
@@ -16,18 +16,33 @@ void display_image(string imgfile) {
     imshow(imgfile, img);
 }
 
+void do_convert(const Mat &input, Mat &output, int width, int height)
+{
+    Mat tmp;
+    resize(input, tmp, Size(width, height));
+    tmp.convertTo(output, CV_32FC3);
+}
+
+void undo_convert(const Mat &input, Mat &output, int width, int height)
+{
+    Mat tmp;
+    input.convertTo(tmp, CV_8UC3);
+    resize(tmp, output, Size(width, height));
+}
+
 void do_patchmatch(string input_file, string src_file, string output_file, 
     int width, int height, int half_patch) 
 {
-    Mat src = imread(src_file, IMREAD_COLOR);
-    Mat dst = imread(input_file, IMREAD_COLOR);
+    Mat srcMat, srcMat2;
+    Mat dstMat, dstMat2;
+    Mat outputMat;
+    float *src, *dst;
 
-    if (width == -1) width = dst.cols;
-    if (height == -1) height = dst.rows;
+    srcMat = imread(src_file, IMREAD_COLOR);
+    dstMat = imread(input_file, IMREAD_COLOR);
 
-    Mat src2, dst2;
-    resize(src, src2, Size(width, height));
-    resize(dst, dst2, Size(width, height));
+    if (width == -1) width = dstMat.cols;
+    if (height == -1) height = dstMat.rows;
 
     #if DEBUG
     cout << "Width: " << width << endl;
@@ -35,20 +50,31 @@ void do_patchmatch(string input_file, string src_file, string output_file,
     cout << "HalfPatch: " << half_patch << endl;
     #endif
 
-    clock_t t1 = clock();
-    patchmatch(src2, dst2, half_patch);
-    clock_t t2 = clock();
+    do_convert(srcMat, srcMat2, width, height);
+    do_convert(dstMat, dstMat2, width, height);
 
-    Mat output;
-    resize(dst2, output, Size(dst.cols, dst.rows));
-    imwrite(output_file, output);
+    mat_to_array(srcMat2, &src);
+    mat_to_array(dstMat2, &dst);
 
-    double time_elasped = (t2 - t1) * 1.0 / CLOCKS_PER_SEC;
+    double t1 = currentSeconds();
+    patchmatch(src, dst, height, width, half_patch);
+    double t2 = currentSeconds();
+
+    array_to_mat(dst, dstMat2, height, width, 3);
+
+    undo_convert(dstMat2, outputMat, dstMat.cols, dstMat.rows);
+    imwrite(output_file, outputMat);
+
+    double time_elasped = (t2 - t1);
     cout << "Time: "<< time_elasped << endl;
+
+    free(src);
+    free(dst);
 }
 
 static void usage(char *name) {
-    string use_string = "-s SRC_FILE -i INPUT_FILE -o OUTPUT_FILE [-w WIDTH] [-h HEIGHT] [-p HALF_PATCH]";
+    string use_string = "-s SRC_FILE -i INPUT_FILE -o OUTPUT_FILE ";
+    use_string += "[-w WIDTH] [-h HEIGHT] [-p HALF_PATCH] [-t THREAD_COUNT]";
     cout << "Usage: " << name << " " << use_string << endl;
     exit(0);
 }
