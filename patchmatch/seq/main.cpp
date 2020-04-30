@@ -16,55 +16,33 @@ void display_image(string imgfile) {
     imshow(imgfile, img);
 }
 
-void mat_to_uchar3_array(const cv::Mat &mat, uchar3t **arr_ptr)
+void do_convert(const Mat &input, Mat &output, int width, int height)
 {
-    int ny = mat.rows;
-    int nx = mat.cols;
-    uchar3t *arr = (uchar3t *) malloc(ny * nx * sizeof(uchar3t));
-
-    int idx = 0;
-    for (int y = 0; y < ny; y++) {
-        for (int x = 0; x < nx; x++) {
-            Vec3b pixel = mat.at<Vec3b>(y, x);
-            arr[idx].x = pixel[0];
-            arr[idx].y = pixel[1];
-            arr[idx].z = pixel[2];
-            idx++;
-        }
-    }
-
-    *arr_ptr = arr;
+    Mat tmp;
+    resize(input, tmp, Size(width, height));
+    tmp.convertTo(output, CV_32FC3);
 }
 
-void uchar3_array_to_mat(uchar3t *arr, cv::Mat &mat)
+void undo_convert(const Mat &input, Mat &output, int width, int height)
 {
-    int ny = mat.rows;
-    int nx = mat.cols;
-
-    int idx = 0;
-    for (int y = 0; y < ny; y++) {
-        for (int x = 0; x < nx; x++) {
-            uchar3t pixel = arr[idx];
-            mat.at<Vec3b>(y, x)[0] = pixel.x;
-            mat.at<Vec3b>(y, x)[1] = pixel.y;
-            mat.at<Vec3b>(y, x)[2] = pixel.z;
-            idx++;
-        }
-    }
+    Mat tmp;
+    input.convertTo(tmp, CV_8UC3);
+    resize(tmp, output, Size(width, height));
 }
 
 void do_patchmatch(string input_file, string src_file, string output_file, 
     int width, int height, int half_patch) 
 {
-    Mat srcMat = imread(src_file, IMREAD_COLOR);
-    Mat dstMat = imread(input_file, IMREAD_COLOR);
+    Mat srcMat, srcMat2;
+    Mat dstMat, dstMat2;
+    Mat outputMat;
+    float *src, *dst;
+
+    srcMat = imread(src_file, IMREAD_COLOR);
+    dstMat = imread(input_file, IMREAD_COLOR);
 
     if (width == -1) width = dstMat.cols;
     if (height == -1) height = dstMat.rows;
-
-    Mat srcMat2, dstMat2;
-    resize(srcMat, srcMat2, Size(width, height));
-    resize(dstMat, dstMat2, Size(width, height));
 
     #if DEBUG
     cout << "Width: " << width << endl;
@@ -72,20 +50,31 @@ void do_patchmatch(string input_file, string src_file, string output_file,
     cout << "HalfPatch: " << half_patch << endl;
     #endif
 
+    do_convert(srcMat, srcMat2, width, height);
+    do_convert(dstMat, dstMat2, width, height);
+
+    mat_to_array(srcMat2, &src);
+    mat_to_array(dstMat2, &dst);
+
     clock_t t1 = clock();
-    patchmatch(srcMat2, dstMat2, half_patch);
+    patchmatch(src, dst, height, width, half_patch);
     clock_t t2 = clock();
 
-    Mat outputMat;
-    resize(dstMat2, outputMat, Size(dstMat.cols, dstMat.rows));
+    array_to_mat(dst, dstMat2, height, width, 3);
+
+    undo_convert(dstMat2, outputMat, dstMat.cols, dstMat.rows);
     imwrite(output_file, outputMat);
 
     double time_elasped = (t2 - t1) * 1.0 / CLOCKS_PER_SEC;
     cout << "Time: "<< time_elasped << endl;
+
+    free(src);
+    free(dst);
 }
 
 static void usage(char *name) {
-    string use_string = "-s SRC_FILE -i INPUT_FILE -o OUTPUT_FILE [-w WIDTH] [-h HEIGHT] [-p HALF_PATCH]";
+    string use_string = "-s SRC_FILE -i INPUT_FILE -o OUTPUT_FILE ";
+    use_string += "[-w WIDTH] [-h HEIGHT] [-p HALF_PATCH] [-t THREAD_COUNT]";
     cout << "Usage: " << name << " " << use_string << endl;
     exit(0);
 }
