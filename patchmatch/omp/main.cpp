@@ -3,6 +3,10 @@
 #include <getopt.h>
 #include <opencv2/opencv.hpp>
 
+#if OMP
+#include "omp.h"
+#endif
+
 #include "util.h"
 #include "patchmatch.h"
 #include "cycletimer.h"
@@ -86,9 +90,10 @@ int main(int argc, char** argv) {
     int width = -1;
     int height = -1;
     int half_patch = 1;
+    int thread_count = 1;
 
     int c;
-    string optstring = "s:i:o:w:h:p:";
+    string optstring = "s:i:o:w:h:p:t:";
     while ((c = getopt(argc, argv, optstring.c_str())) != -1) {
         switch(c) {
             case 's':
@@ -109,6 +114,9 @@ int main(int argc, char** argv) {
             case 'p':
                 half_patch = atoi(optarg);
                 break;
+            case 't':
+                thread_count = atoi(optarg);
+                break;
             default:
                 printf("Unknown option '%c'\n", c);
                 usage(argv[0]);
@@ -127,6 +135,11 @@ int main(int argc, char** argv) {
         cout << "Missing output file" << endl;
         usage(argv[0]);
     }
+
+    #if OMP
+    cout << "Thread num: " << thread_count << endl;
+    omp_set_num_threads(thread_count);
+    #endif
 
     // display_image(src_file);
     do_patchmatch(input_file, src_file, output_file, 
