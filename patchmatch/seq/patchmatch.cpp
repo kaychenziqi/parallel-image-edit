@@ -16,7 +16,7 @@ inline int get_cidx(int y, int x, int w, int c) { return (y * w + x) * N_CHANNEL
 
 inline float square(float x) { return x * x; }
 
-float sum_squared_diff(float *fpixel, float *spixel)
+inline float sum_squared_diff(float *fpixel, float *spixel)
 {
     float dist = sqrt(
         square(fpixel[0] - spixel[0]) +
