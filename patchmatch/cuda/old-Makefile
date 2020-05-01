@@ -1,0 +1,43 @@
+CC = g++ -m64
+NVCC = nvcc
+DEBUG = 1
+
+CFLAGS = -g -O3 -Wall -DDEBUG=$(DEBUG)
+LDFLAGS = -lm
+OPENCV_FLAGS = -DOPENCV `pkg-config opencv --cflags --libs`
+CU_LDFLAGS = -L/usr/local/depot/cuda-10.2/lib64/ -lcudart
+NVCC_FLAGS=-O3 -m64 --gpu-architecture compute_61 -ccbin /usr/bin/gcc
+
+LIBS = cudart # GL glut 
+LDLIBS  := $(addprefix -l, $(LIBS))
+
+INC_FILES = util.h patchmatch.h cycletimer.h
+CC_FILES = main.cpp util.cpp cycletimer.c
+CU_FILES = patchmatch.cu
+
+OBJDIR = objs
+OBJS = $(OBJDIR)/main.o $(OBJDIR)/patchmatch.o $(OBJDIR)/util.o $(OBJDIR)/cycletimer.o
+
+LOGS=logs
+
+default: all
+
+all: cuda
+
+dirs:
+	mkdir -p $(OBJDIR)/
+
+$(OBJDIR)/%.o: %.cpp
+	$(CC) $< $(CFLAGS) -c -o $@ $(OPENCV_FLAGS)
+
+$(OBJDIR)/%.o: %.c
+	$(CC) $< $(CFLAGS) -c -o $@
+
+$(OBJDIR)/%.o: %.cu
+	$(NVCC) $< $(NVCC_FLAGS) -c -o $@
+
+cuda: dirs $(OBJS)
+	$(CC) $(CFLAGS) -o PatchMatchCuda $(OBJS) $(LDFLAGS) $(CU_LDFLAGS) $(LDLIBS) $(OPENCV_FLAGS)
+
+clean:
+	rm -rf $(OBJDIR) PatchMatchCuda
