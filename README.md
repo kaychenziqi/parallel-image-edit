@@ -4,17 +4,14 @@
 
 ### Compile
 
-```
-make all
-make seq
-make omp
-make cuda
-```
+`cd` into the directories and run `make`.
 
 ### Run
 
 ```
-./PatchMatchSeq -i img/Cloth2-view1.jpg -s img/Cloth1-view1.jpg -o output/Cloth2-view1.jpg -p 5
+mkdir ../output
+mkdir ../scratch
+./PatchMatchSeq -i ../img/Cloth2-view1.jpg -s ../img/Cloth1-view1.jpg -o ../output/Cloth2-view1.jpg -p 5
 ```
 
 - `-i`: input file

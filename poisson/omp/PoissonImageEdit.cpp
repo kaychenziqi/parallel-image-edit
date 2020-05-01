@@ -4,6 +4,7 @@
 #include <opencv2/imgproc/imgproc.hpp>
 #include <time.h>
 #include "omp.h"
+#include "cycletimer.h"
 using namespace std;
 #define ITERATIONS 70000
 #define THREAD_COUNT 8
@@ -411,6 +412,23 @@ void merge_without_blend_omp_dynamic(float *srcimg, float *targetimg, float *out
     }
 }
 
+void neighbor_sum(float *neighbor_sum_list, float *targetimg, int c, int w, 
+    int h, int boundBoxMinX, int boundBoxMaxX, 
+    int boundBoxMinY, int boundBoxMaxY){
+        for(int channel=0; channel<c; channel++){
+            for(int y=boundBoxMinY; y<boundBoxMaxY; y++){
+                for(int x=boundBoxMinX; x<boundBoxMaxX; x++){
+                    int id = x + y*w + channel * w * h;
+                    int idx_nextX = x+1 + w*y +w*h*channel;
+                    int idx_prevX = x-1 + w*y + w*h*channel;
+                    int idx_nextY = x + w*(y+1) +w*h*channel;
+                    int idx_prevY = x + w*(y-1) +w*h*channel;
+                    neighbor_sum_list[id] = 4*targetimg[id] - (targetimg[idx_nextY]+targetimg[idx_nextX]+targetimg[idx_prevX]+targetimg[idx_prevY]);
+                }
+            }
+        }
+    }
+
 void poisson_jacobi(float *targetimg, float *outimg, 
     int *boundary_array,int c, int w, 
     int h, int boundBoxMinX, int boundBoxMaxX, 
@@ -437,7 +455,7 @@ void poisson_jacobi(float *targetimg, float *outimg,
     }
 }
 
-void poisson_jacobi_omp_static(float *targetimg, float *outimg, 
+void poisson_jacobi_omp_static(float *neighbor_sum, float *targetimg, float *outimg, 
     int *boundary_array,int c, int w, 
     int h, int boundBoxMinX, int boundBoxMaxX, 
     int boundBoxMinY, int boundBoxMaxY){
@@ -447,7 +465,12 @@ void poisson_jacobi_omp_static(float *targetimg, float *outimg,
     #endif
     {
         int t = omp_get_thread_num();
-        int x_each = (boundBoxMaxX-boundBoxMinX+1)/ROW_THREAD;
+        int x_each;
+        if((boundBoxMaxX-boundBoxMinX+1)%ROW_THREAD==0){
+            x_each = (boundBoxMaxX-boundBoxMinX+1)/ROW_THREAD;
+        }else{
+            x_each = (boundBoxMaxX-boundBoxMinX+1)/ROW_THREAD+1;
+        }
         int y_each;
         if((boundBoxMaxY-boundBoxMinY+1)%THREAD_COUNT==0){
             y_each = (boundBoxMaxY-boundBoxMinY+1)/THREAD_COUNT*ROW_THREAD;
@@ -458,7 +481,6 @@ void poisson_jacobi_omp_static(float *targetimg, float *outimg,
         int y_end = y_begin+y_each;
         int x_begin = (t%ROW_THREAD)*x_each + boundBoxMinX;
         int x_end = x_begin+x_each;
-        printf("y_begin %d, y_end %d, x_begin %d, x_end %d\n",y_begin, y_end, x_begin, x_end);
     
         for(int i=0; i<ITERATIONS; i++){
             //printf("%d iteration\n", i);
@@ -472,9 +494,9 @@ void poisson_jacobi_omp_static(float *targetimg, float *outimg,
                         int idx_prevY = x + w*(y-1) +w*h*channel;
                         //printf("id: %d, idx_nextX: %d, idx_prevX: %d, idx_nextY: %d, idx_prevY: %d\n", id, idx_nextX, idx_prevX, idx_nextY, idx_prevY);
                         if(boundary_array[id] == INSIDE_MASK){
-                            double neighbor_target = targetimg[idx_nextY]+targetimg[idx_nextX]+targetimg[idx_prevX]+targetimg[idx_prevY];
+                            //double neighbor_target = targetimg[idx_nextY]+targetimg[idx_nextX]+targetimg[idx_prevX]+targetimg[idx_prevY];
                             double neighbor_output = outimg[idx_nextY]+outimg[idx_nextX]+outimg[idx_prevX]+outimg[idx_prevY];
-                            outimg[id] = 0.25*(4*targetimg[id]-neighbor_target + neighbor_output);
+                            outimg[id] = 0.25*(neighbor_sum[id] + neighbor_output);
                         }
                     }
                 }
@@ -494,26 +516,28 @@ void poisson_jacobi_omp_dynamic(float *targetimg, float *outimg,
     int mask_width = boundBoxMaxX - boundBoxMinX+1;
     int mask_height = boundBoxMaxY - boundBoxMinY+1;
 
-    #if OMP
-    #pragma omp parallel for schedule(dynamic, CHUNKSIZE1)
-    #endif
-    for(int id_fake = 0; id_fake<mask_height*mask_width*c; id_fake++){
-        int channel = id_fake/(mask_height*mask_width);
-        int y=(id_fake%(mask_height*mask_width))/mask_width + boundBoxMinY;
-        int x=(id_fake%(mask_height*mask_width))%mask_width + boundBoxMinX;
+    for(int i=0; i<ITERATIONS; i++){
+        #if OMP
+        #pragma omp parallel for schedule(dynamic, CHUNKSIZE1)
+        #endif
+        for(int id_fake = 0; id_fake<mask_height*mask_width*c; id_fake++){
+            int channel = id_fake/(mask_height*mask_width);
+            int y=(id_fake%(mask_height*mask_width))/mask_width + boundBoxMinY;
+            int x=(id_fake%(mask_height*mask_width))%mask_width + boundBoxMinX;
+            
+            int id = x + y*w + channel * w * h;
+            int idx_nextX = x+1 + w*y +w*h*channel;
+            int idx_prevX = x-1 + w*y + w*h*channel;
+            int idx_nextY = x + w*(y+1) +w*h*channel;
+            int idx_prevY = x + w*(y-1) +w*h*channel;
+            //printf("id: %d, idx_nextX: %d, idx_prevX: %d, idx_nextY: %d, idx_prevY: %d\n", id, idx_nextX, idx_prevX, idx_nextY, idx_prevY);
+            if(boundary_array[id] == INSIDE_MASK){
+                double neighbor_target = targetimg[idx_nextY]+targetimg[idx_nextX]+targetimg[idx_prevX]+targetimg[idx_prevY];
+                double neighbor_output = outimg[idx_nextY]+outimg[idx_nextX]+outimg[idx_prevX]+outimg[idx_prevY];
+                outimg[id] = 0.25*(4*targetimg[id]-neighbor_target + neighbor_output);
+            }
         
-        int id = x + y*w + channel * w * h;
-        int idx_nextX = x+1 + w*y +w*h*channel;
-        int idx_prevX = x-1 + w*y + w*h*channel;
-        int idx_nextY = x + w*(y+1) +w*h*channel;
-        int idx_prevY = x + w*(y-1) +w*h*channel;
-        //printf("id: %d, idx_nextX: %d, idx_prevX: %d, idx_nextY: %d, idx_prevY: %d\n", id, idx_nextX, idx_prevX, idx_nextY, idx_prevY);
-        if(boundary_array[id] == INSIDE_MASK){
-            double neighbor_target = targetimg[idx_nextY]+targetimg[idx_nextX]+targetimg[idx_prevX]+targetimg[idx_prevY];
-            double neighbor_output = outimg[idx_nextY]+outimg[idx_nextX]+outimg[idx_prevX]+outimg[idx_prevY];
-            outimg[id] = 0.25*(4*targetimg[id]-neighbor_target + neighbor_output);
         }
-    
     }
        
 }
@@ -582,9 +606,10 @@ int main(int argc, char **argv)
     float *imgOut_openmp = new float[(size_t)target_w*target_h*mOut_seq.channels()];
     int *boundryPixelArray_openmp_dynamic = new int[(size_t)target_w*target_h*mOut_seq.channels()];
     float *imgOut_openmp_dynamic = new float[(size_t)target_w*target_h*mOut_seq.channels()];
+    float *neighbor_sum_list = new float[(size_t)target_w*target_h*mOut_seq.channels()];
     
     //begin sequential part clocking
-    clock_t t1 = clock();
+    double t1 = currentSeconds();
     cout<<"begin sequentail"<<endl;
     //get boundary pixel array to indicate which pixel is corner, edge, inside_mask, boundary or just outside
     extract_boundary(maskIn, boundryPixelArray_seq, source_nc, source_w, source_h);
@@ -592,54 +617,56 @@ int main(int argc, char **argv)
     // calculate the bounding box for reducing unnecessary calculation
     calculate_boundbox(target_w, target_h, target_nc, boundryPixelArray_seq, &boundBoxMinX, &boundBoxMinY, &boundBoxMaxX, &boundBoxMaxY);
     merge_without_blend(srcimgIn, targetimgIn, imgOut_seq, boundryPixelArray_seq, source_nc, source_w, source_h);
-    cout << "time cost for seq initialize: "<<(clock()-t1) * 1.0 / CLOCKS_PER_SEC * 1000 << endl;
+    cout << "time cost for seq initialize: "<<(currentSeconds()-t1) * 1000 << endl;
     poisson_jacobi(targetimgIn, imgOut_seq, boundryPixelArray_seq, source_nc, source_w, source_h, boundBoxMinX, boundBoxMaxX, boundBoxMinY, boundBoxMaxY);
     
-    clock_t sequential_time = clock()-t1;
-    cout << "time cost for CPU: "<<sequential_time * 1.0 / CLOCKS_PER_SEC * 1000 << endl;
+    double sequential_time = currentSeconds()-t1;
+    cout << "time cost for CPU: "<<sequential_time * 1000 << endl;
     convert_layered_to_interleaved((float*)mOut_seq.data, imgOut_seq, source_w, source_h, source_nc);
     cv::imwrite("FinalImage_sequential.jpg",mOut_seq*255.f);
 
     /*-------openmp static---------*/
     omp_set_num_threads(THREAD_COUNT);
-    clock_t t2 = clock();
+    printf("openmp max threas: %d\n", omp_get_max_threads());
+    double t2 = currentSeconds();
     cout<<"begin extract boundary"<<endl;
     extract_boundary_omp_static(maskIn, boundryPixelArray_openmp, source_nc, source_w, source_h);
     cout<<"begin calculate boundbox"<<endl;
     calculate_boundbox(target_w, target_h, target_nc, boundryPixelArray_openmp, &boundBoxMinX, &boundBoxMinY, &boundBoxMaxX, &boundBoxMaxY);
     cout<<"begin merge"<<endl;
     merge_without_blend_omp_static(srcimgIn, targetimgIn, imgOut_openmp, boundryPixelArray_openmp, source_nc, source_w, source_h);
-    cout << "time cost for openmp static initialize: "<<(clock()-t2) * 1.0 / CLOCKS_PER_SEC * 1000 << endl;
+    neighbor_sum(neighbor_sum_list, targetimgIn, source_nc, source_w, source_h, boundBoxMinX, boundBoxMaxX, boundBoxMinY, boundBoxMaxY);
+    cout << "time cost for openmp static initialize: "<<(currentSeconds()-t2)* 1000 << endl;
     
     printf("boundbox:%d, %d, %d, %d\n", boundBoxMinX, boundBoxMaxX, boundBoxMinY, boundBoxMaxY);
     
-    poisson_jacobi_omp_static(targetimgIn, imgOut_openmp, boundryPixelArray_openmp, source_nc, source_w, source_h, boundBoxMinX, boundBoxMaxX, boundBoxMinY, boundBoxMaxY);
+    poisson_jacobi_omp_static(neighbor_sum_list,targetimgIn, imgOut_openmp, boundryPixelArray_openmp, source_nc, source_w, source_h, boundBoxMinX, boundBoxMaxX, boundBoxMinY, boundBoxMaxY);
     
-    clock_t openmp_time_static = clock()-t2;
-    cout << "time cost for openmp static: "<<openmp_time_static * 1.0 / CLOCKS_PER_SEC * 1000 << endl;
-    cout << "speedup for openmp static: "<<(sequential_time * 1.0 / CLOCKS_PER_SEC * 1000)/(openmp_time_static * 1.0 / CLOCKS_PER_SEC * 1000)<<endl;
+    double openmp_time_static = currentSeconds()-t2;
+    cout << "time cost for openmp static: "<<openmp_time_static * 1000 << endl;
+    cout << "speedup for openmp static: "<<sequential_time/openmp_time_static<<endl;
     
     convert_layered_to_interleaved((float*)mOut_seq.data, imgOut_openmp, source_w, source_h, source_nc);
     cv::imwrite("FinalImage_omp_static.jpg",mOut_seq*255.f);
 
     /*---------openmp dynamic---------*/
     omp_set_num_threads(THREAD_COUNT);
-    clock_t t3 = clock();
+    double t3 = currentSeconds();
     cout<<"begin extract boundary"<<endl;
     extract_boundary_omp_dynamic(maskIn, boundryPixelArray_openmp_dynamic, source_nc, source_w, source_h);
     cout<<"begin calculate boundbox"<<endl;
     calculate_boundbox(target_w, target_h, target_nc, boundryPixelArray_openmp_dynamic, &boundBoxMinX, &boundBoxMinY, &boundBoxMaxX, &boundBoxMaxY);
     cout<<"begin merge"<<endl;
     merge_without_blend_omp_dynamic(srcimgIn, targetimgIn, imgOut_openmp_dynamic, boundryPixelArray_openmp_dynamic, source_nc, source_w, source_h);
-    cout << "time cost for openmp dynamic initialize: "<<(clock()-t3) * 1.0 / CLOCKS_PER_SEC * 1000 << endl;
+    cout << "time cost for openmp dynamic initialize: "<<(currentSeconds()-t3) * 1000 << endl;
     
-    for(int i=0; i<ITERATIONS; i++){
+    //for(int i=0; i<ITERATIONS; i++){
         poisson_jacobi_omp_dynamic(targetimgIn, imgOut_openmp_dynamic, boundryPixelArray_openmp_dynamic, source_nc, source_w, source_h, boundBoxMinX, boundBoxMaxX, boundBoxMinY, boundBoxMaxY);
-    }
+    //}
     
-    clock_t openmp_time_dynamic = clock()-t3;
-    cout << "time cost for openmp dynamic: "<<openmp_time_dynamic * 1.0 / CLOCKS_PER_SEC * 1000 << endl;
-    cout << "speedup for openmp dynamic: "<<(sequential_time * 1.0 / CLOCKS_PER_SEC * 1000)/(openmp_time_dynamic * 1.0 / CLOCKS_PER_SEC * 1000)<<endl;
+    double openmp_time_dynamic = currentSeconds()-t3;
+    cout << "time cost for openmp dynamic: "<<openmp_time_dynamic * 1000 << endl;
+    cout << "speedup for openmp dynamic: "<<sequential_time /openmp_time_dynamic<<endl;
     
     convert_layered_to_interleaved((float*)mOut_seq.data, imgOut_openmp_dynamic, source_w, source_h, source_nc);
     cv::imwrite("FinalImage_omp_dynamic.jpg",mOut_seq*255.f);
@@ -653,5 +680,6 @@ int main(int argc, char **argv)
     free(imgOut_openmp);
     free(boundryPixelArray_openmp_dynamic);
     free(imgOut_openmp_dynamic);
+    free(neighbor_sum_list);
 
 } 
