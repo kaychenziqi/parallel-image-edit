@@ -81,16 +81,37 @@ void pick_random_pixel(int radius, int height, int width,
 void init_random_map(float *first, float *second, map_t *map, 
     int height, int width, int half_patch)
 {
-    for (int y = 0; y < height; y++ ) {
-        for (int x = 0; x < width; x++ ) {
-            int rx = random() % width;
-            int ry = random() % height;
-            int idx = y * width + x;
+    #if OMP
+    #pragma omp parallel
+    #endif
+    {
+        int T = omp_get_num_threads();
+        int Ty = (int) ceil(sqrt((double) T));
+        int Tx = T / Ty;
 
-            map[idx].x = rx;
-            map[idx].y = ry;
-            map[idx].dist = patch_distance(first, second, x, y, rx, ry, 
-                height, width, half_patch);
+        int t = omp_get_thread_num();
+        int ty = t / Tx;
+        int tx = t % Tx;
+
+        int y_interval = (height + Ty - 1) / Ty;
+        int x_interval = (width + Tx - 1) / Tx;
+        
+        int y_start = y_interval * ty;
+        int y_end = min(y_interval * (ty + 1), height);
+        int x_start = x_interval * tx;
+        int x_end = min(x_interval * (tx + 1), width);
+        
+        for (int y = y_start; y < y_end; y++ ) {
+            for (int x = x_start; x < x_end; x++ ) {
+                int rx = random() % width;
+                int ry = random() % height;
+                int idx = y * width + x;
+
+                map[idx].x = rx;
+                map[idx].y = ry;
+                map[idx].dist = patch_distance(first, second, x, y, rx, ry, 
+                    height, width, half_patch);
+            }
         }
     }
 }
@@ -105,68 +126,86 @@ void nn_search(float *first, float *second, map_t *curMap,
     int search_radius = max(width, height);
 
     #if OMP
-    #pragma omp parallel for schedule(static)
+    #pragma omp parallel
     #endif
-    for (int fy = 0; fy < height; fy++) {
-        for (int fx = 0; fx < width; fx++) {
-            int f = (fy * width) + fx;
-            int best_x = curMap[f].x; 
-            int best_y = curMap[f].y; 
-            float best_dist = curMap[f].dist;
+    {
+        int T = omp_get_num_threads();
+        int Ty = (int) ceil(sqrt((double) T));
+        int Tx = T / Ty;
 
-            // propagate
-            if (fx > 0) {
-                // find neighbor's patch
-                int pf = f - 1;
-                int px = curMap[pf].x + 1;
-                int py = curMap[pf].y;
-                
-                if (px < width) { 
-                    float dist = patch_distance(first, second, fx, fy, px, py, height, width, half_patch);
+        int t = omp_get_thread_num();
+        int ty = t / Tx;
+        int tx = t % Tx;
+
+        int y_interval = (height + Ty - 1) / Ty;
+        int x_interval = (width + Tx - 1) / Tx;
+        
+        int y_start = y_interval * ty;
+        int y_end = min(y_interval * (ty + 1), height);
+        int x_start = x_interval * tx;
+        int x_end = min(x_interval * (tx + 1), width);
+
+        for (int fy = y_start; fy < y_end; fy++) {
+            for (int fx = x_start; fx < x_end; fx++) {
+                int f = (fy * width) + fx;
+                int best_x = curMap[f].x; 
+                int best_y = curMap[f].y; 
+                float best_dist = curMap[f].dist;
+
+                // propagate
+                if (fx > 0) {
+                    // find neighbor's patch
+                    int pf = f - 1;
+                    int px = curMap[pf].x + 1;
+                    int py = curMap[pf].y;
                     
+                    if (px < width) { 
+                        float dist = patch_distance(first, second, fx, fy, px, py, height, width, half_patch);
+                        
+                        if (dist < best_dist) {
+                            best_x = px; 
+                            best_y = py;
+                            best_dist = dist;
+                        }
+                    }
+                }
+
+                if (fy > 0) {
+                    // find neighbor's patch
+                    int pf = f - width;
+                    int px = curMap[pf].x;
+                    int py = curMap[pf].y + 1;
+                    
+                    if (py < height) { 
+                        float dist = patch_distance(first, second, fx, fy, px, py, height, width, half_patch);
+                        
+                        if (dist < best_dist) {
+                            best_x = px; 
+                            best_y = py;
+                            best_dist = dist;
+                        }
+                    }
+                }
+
+                // random search
+                for (int radius = search_radius; radius >= 1; radius /= 2) {
+                    int rx, ry;
+                    pick_random_pixel(radius, height, width, 
+                        best_x, best_y, &rx, &ry);
+
+                    float dist = patch_distance(first, second, fx, fy, rx, ry, height, width, half_patch);
+
                     if (dist < best_dist) {
-                        best_x = px; 
-                        best_y = py;
+                        best_x = rx;
+                        best_y = ry;
                         best_dist = dist;
                     }
                 }
-            }
-
-            if (fy > 0) {
-                // find neighbor's patch
-                int pf = f - width;
-                int px = curMap[pf].x;
-                int py = curMap[pf].y + 1;
                 
-                if (py < height) { 
-                    float dist = patch_distance(first, second, fx, fy, px, py, height, width, half_patch);
-                    
-                    if (dist < best_dist) {
-                        best_x = px; 
-                        best_y = py;
-                        best_dist = dist;
-                    }
-                }
+                curMap[f].x = best_x;
+                curMap[f].y = best_y;
+                curMap[f].dist = best_dist;
             }
-
-            // random search
-            for (int radius = search_radius; radius >= 1; radius /= 2) {
-                int rx, ry;
-                pick_random_pixel(radius, height, width, 
-                    best_x, best_y, &rx, &ry);
-
-                float dist = patch_distance(first, second, fx, fy, rx, ry, height, width, half_patch);
-
-                if (dist < best_dist) {
-                    best_x = rx;
-                    best_y = ry;
-                    best_dist = dist;
-                }
-            }
-            
-            curMap[f].x = best_x;
-            curMap[f].y = best_y;
-            curMap[f].dist = best_dist;
         }
     }
 }
@@ -175,68 +214,105 @@ void nn_map(float *src, float *dst, map_t *map,
     int height, int width)
 {
     #if OMP
-    #pragma omp parallel for schedule(static)
+    #pragma omp parallel
     #endif
-    for (int dy = 0; dy < height; dy++) {
-        for (int dx = 0; dx < width; dx++) {
-            int idx = get_pidx(dy, dx, width);
+    {
+        int T = omp_get_num_threads();
+        int Ty = (int) ceil(sqrt((double) T));
+        int Tx = T / Ty;
 
-            if (map[idx].x < 0 || map[idx].x >= width) {
-                cout << "Bad X position " << map[idx].x 
-                    << " at (" << dx << ", " << dy << ")" << endl;
-            }
-            else if (map[idx].y < 0 || map[idx].y >= height) {
-                cout << "Bad Y position " << map[idx].y 
-                    << " at (" << dx << ", " << dy << ")" << endl;
-            }
-            else {
-                int midx = get_pidx(map[idx].y, map[idx].x, width);
-                dst[idx * N_CHANNELS + 0] = src[midx * N_CHANNELS + 0];
-                dst[idx * N_CHANNELS + 1] = src[midx * N_CHANNELS + 1];
-                dst[idx * N_CHANNELS + 2] = src[midx * N_CHANNELS + 2];
+        int t = omp_get_thread_num();
+        int ty = t / Tx;
+        int tx = t % Tx;
+
+        int y_interval = (height + Ty - 1) / Ty;
+        int x_interval = (width + Tx - 1) / Tx;
+        
+        int y_start = y_interval * ty;
+        int y_end = min(y_interval * (ty + 1), height);
+        int x_start = x_interval * tx;
+        int x_end = min(x_interval * (tx + 1), width);
+
+        for (int dy = y_start; dy < y_end; dy++) {
+            for (int dx = x_start; dx < x_end; dx++) {
+                int idx = get_pidx(dy, dx, width);
+
+                if (map[idx].x < 0 || map[idx].x >= width) {
+                    cout << "Bad X position " << map[idx].x 
+                        << " at (" << dx << ", " << dy << ")" << endl;
+                }
+                else if (map[idx].y < 0 || map[idx].y >= height) {
+                    cout << "Bad Y position " << map[idx].y 
+                        << " at (" << dx << ", " << dy << ")" << endl;
+                }
+                else {
+                    int midx = get_pidx(map[idx].y, map[idx].x, width);
+                    dst[idx * N_CHANNELS + 0] = src[midx * N_CHANNELS + 0];
+                    dst[idx * N_CHANNELS + 1] = src[midx * N_CHANNELS + 1];
+                    dst[idx * N_CHANNELS + 2] = src[midx * N_CHANNELS + 2];
+                }
             }
         }
     }
+    
 }
 
 void nn_map_average(float *src, float *dst, map_t *map, 
     int height, int width, int half_patch)
 {
     #if OMP
-    #pragma omp parallel for schedule(static)
+    #pragma omp parallel
     #endif
-    for (int dy = 0; dy < height; dy++) {        
-        int fy_min = max(dy - half_patch, 0);
-        int fy_max = min(dy + half_patch, height - 1);
-        int fy_len = fy_max - fy_min + 1;
+    {
+        int T = omp_get_num_threads();
+        int Ty = (int) ceil(sqrt((double) T));
+        int Tx = T / Ty;
 
-        for (int dx = 0; dx < width; dx++) {
-            int fx_min = max(dx - half_patch, 0);
-            int fx_max = min(dx + half_patch, width - 1);
-            int fx_len = fx_max - fx_min + 1;
+        int t = omp_get_thread_num();
+        int ty = t / Tx;
+        int tx = t % Tx;
 
-            int pixel_sums[3];
-            pixel_sums[0] = pixel_sums[1] = pixel_sums[2] = 0;
-            
-            for (int fy = fy_min; fy <= fy_max; fy++) {
-                for (int fx = fx_min; fx <= fx_max; fx++) {
-                    int f = fy * width + fx;
-                    int px = map[f].x;
-                    int py = map[f].y;
+        int y_interval = (height + Ty - 1) / Ty;
+        int x_interval = (width + Tx - 1) / Tx;
+        
+        int y_start = y_interval * ty;
+        int y_end = min(y_interval * (ty + 1), height);
+        int x_start = x_interval * tx;
+        int x_end = min(x_interval * (tx + 1), width);
 
-                    float *spixel = src + get_pidx(py, px, width) * N_CHANNELS;
-                    pixel_sums[0] += spixel[0];
-                    pixel_sums[1] += spixel[1];
-                    pixel_sums[2] += spixel[2];
+        for (int dy = y_start; dy < y_end; dy++) {        
+            int fy_min = max(dy - half_patch, 0);
+            int fy_max = min(dy + half_patch, height - 1);
+            int fy_len = fy_max - fy_min + 1;
+
+            for (int dx = x_start; dx < x_end; dx++) {
+                int fx_min = max(dx - half_patch, 0);
+                int fx_max = min(dx + half_patch, width - 1);
+                int fx_len = fx_max - fx_min + 1;
+
+                int pixel_sums[3];
+                pixel_sums[0] = pixel_sums[1] = pixel_sums[2] = 0;
+                
+                for (int fy = fy_min; fy <= fy_max; fy++) {
+                    for (int fx = fx_min; fx <= fx_max; fx++) {
+                        int f = fy * width + fx;
+                        int px = map[f].x;
+                        int py = map[f].y;
+
+                        float *spixel = src + get_pidx(py, px, width) * N_CHANNELS;
+                        pixel_sums[0] += spixel[0];
+                        pixel_sums[1] += spixel[1];
+                        pixel_sums[2] += spixel[2];
+                    }
                 }
+
+                int num_pixels = fy_len * fx_len;
+
+                float *dpixel = dst + get_pidx(dy, dx, width) * N_CHANNELS;
+                dpixel[0] = pixel_sums[0] / num_pixels;
+                dpixel[1] = pixel_sums[1] / num_pixels;
+                dpixel[2] = pixel_sums[2] / num_pixels;
             }
-
-            int num_pixels = fy_len * fx_len;
-
-            float *dpixel = dst + get_pidx(dy, dx, width) * N_CHANNELS;
-            dpixel[0] = pixel_sums[0] / num_pixels;
-            dpixel[1] = pixel_sums[1] / num_pixels;
-            dpixel[2] = pixel_sums[2] / num_pixels;
         }
     }
 }
