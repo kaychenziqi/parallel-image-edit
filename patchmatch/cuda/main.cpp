@@ -5,7 +5,7 @@
 
 #include "util.h"
 #include "patchmatch.h"
-#include "cycletimer.h"
+#include "CycleTimer2.h"
 
 using namespace std;
 using namespace cv;
@@ -56,9 +56,11 @@ void do_patchmatch(string input_file, string src_file, string output_file,
     mat_to_array(srcMat2, &src);
     mat_to_array(dstMat2, &dst);
 
-    double t1 = currentSeconds();
+    // double t1 = currentSeconds();
+    double t1 = CycleTimer::currentSeconds();
     patchmatch(src, dst, height, width, half_patch);
-    double t2 = currentSeconds();
+    double t2 = CycleTimer::currentSeconds();
+    // double t2 = currentSeconds();
 
     array_to_mat(dst, dstMat2, height, width, 3);
 
