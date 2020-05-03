@@ -16,5 +16,8 @@ all: omp
 omp: $(CC_FILES) $(INC_FILES)
 	$(CC) $(CFLAGS) -o PatchMatchOmp $(CC_FILES) $(OMP_FLAGS) $(LDFLAGS) $(OPENCV_FLAGS)
 
+test:
+	./PatchMatchOmp -i ../img/Cloth2-view1.jpg -s ../img/Cloth1-view1.jpg -o ../output/Cloth2-view1-omp.jpg -p 9 -t 8
+
 clean:
 	rm -rf PatchMatchOmp

@@ -15,5 +15,8 @@ all: seq
 seq: $(CC_FILES) $(INC_FILES)
 	$(CC) $(CFLAGS) -o PatchMatchSeq $(CC_FILES) $(LDFLAGS) $(OPENCV_FLAGS)
 
+test:
+	./PatchMatchSeq -i ../img/Cloth2-view1.jpg -s ../img/Cloth1-view1.jpg -o ../output/Cloth2-view1-seq.jpg -p 9
+
 clean:
 	rm -rf PatchMatchSeq

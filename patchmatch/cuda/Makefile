@@ -24,6 +24,9 @@ all: $(EXECUTABLE)
 
 default: $(EXECUTABLE)
 
+test:
+	./PatchMatchCuda -i ../img/Cloth2-view1.jpg -s ../img/Cloth1-view1.jpg -o ../output/Cloth2-view1-cuda.jpg -p 9 
+
 dirs:
 		mkdir -p $(OBJDIR)/
 

@@ -124,6 +124,7 @@ void nn_search(float *first, float *second, map_t *curMap,
 {
     // int search_radius = min(MAX_SEARCH_RADIUS, min(width, height));
     int search_radius = max(width, height);
+    // int search_radius = min(3, max(width, height));
 
     #if OMP
     #pragma omp parallel
@@ -189,6 +190,7 @@ void nn_search(float *first, float *second, map_t *curMap,
 
                 // random search
                 for (int radius = search_radius; radius >= 1; radius /= 2) {
+                // for (int radius = search_radius; radius >= 1; radius--) {
                     int rx, ry;
                     pick_random_pixel(radius, height, width, 
                         best_x, best_y, &rx, &ry);
@@ -260,6 +262,8 @@ void nn_map(float *src, float *dst, map_t *map,
 void nn_map_average(float *src, float *dst, map_t *map, 
     int height, int width, int half_patch)
 {
+    half_patch = min(3, half_patch);
+
     #if OMP
     #pragma omp parallel
     #endif
