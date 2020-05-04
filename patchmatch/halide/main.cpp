@@ -5,12 +5,15 @@
 
 #include "Halide.h"
 #include "halide_image_io.h"
+#include "CycleTimer2.h"
 
 using namespace Halide;
 using namespace Halide::Tools;
 
 #define HALF_PATCH 7
 #define NUM_ITERATIONS 10
+#define RADIUS 5
+#define STRIDE 1
 
 struct MapEntry {
     Expr dx;
@@ -68,8 +71,7 @@ Expr patch_distance(Func dst, Func src, Expr dx, Expr dy, Expr sx, Expr sy,
     return distance;
 }
 
-Tuple propagate(Tuple cur, Tuple left, Tuple up,
-    Func dst, Func src, int width, int height)
+Tuple propagate(Tuple cur, Func dst, Func src, int width, int height)
 {
     Expr dx = cur[0];
     Expr dy = cur[1];
@@ -77,23 +79,16 @@ Tuple propagate(Tuple cur, Tuple left, Tuple up,
     Expr sy = cur[3];
     Expr d = cur[4];
 
-    Expr left_sx = left[2] + 1;
-    Expr left_sy = left[3];
-    Expr left_d = patch_distance(dst, src, dx, dy, left_sx, left_sy, width, height);
+    Expr left_d = patch_distance(dst, src, dx, dy, sx - STRIDE, sy, width, height);
+    Expr up_d = patch_distance(dst, src, dx, dy, sx, sy - STRIDE, width, height);
 
-    Expr up_sx = up[2];
-    Expr up_sy = up[3] + 1;
-    Expr up_d = patch_distance(dst, src, dx, dy, up_sx, up_sy, width, height);
+    Expr new_sx = select(left_d <= d, 
+        select(left_d <= up_d, sx - STRIDE, sx),
+        sx);
 
-    Expr new_sx = select(d <= left_d, 
-        select(d <= up_d, sx, up_sx),
-        select(left_d <= up_d, left_sx, up_sx)
-    );
-
-    Expr new_sy = select(d <= left_d, 
-        select(d <= up_d, sy, up_sy),
-        select(left_d <= up_d, left_sy, up_sy)
-    );
+    Expr new_sy = select(up_d <= d, 
+        select(up_d <= left_d, sy - STRIDE, sy),
+        sy);
 
     Expr new_d = select(d <= left_d, 
         select(d <= up_d, d, up_d),
@@ -103,8 +98,7 @@ Tuple propagate(Tuple cur, Tuple left, Tuple up,
     return Tuple(dx, dy, new_sx, new_sy, new_d);
 }
 
-Tuple random_search(Tuple cur, Tuple other, 
-    Func dst, Func src, int width, int height)
+Tuple random_search(Tuple cur, Func dst, Func src, int width, int height, int radius)
 {
     Expr dx = cur[0];
     Expr dy = cur[1];
@@ -112,8 +106,11 @@ Tuple random_search(Tuple cur, Tuple other,
     Expr sy = cur[3];
     Expr d = cur[4];
 
-    Expr rx = other[2];
-    Expr ry = other[3];
+    Expr rand_x = random_int() % (2 * radius) - radius;
+    Expr rand_y = random_int() % (2 * radius) - radius;
+
+    Expr rx = max(0, min(sx + rand_x, width));
+    Expr ry = max(0, min(sy + rand_y, height));
     Expr rd = patch_distance(dst, src, dx, dy, rx, ry, width, height);
 
     Expr new_sx = select(d <= rd, sx, rx);
@@ -121,6 +118,15 @@ Tuple random_search(Tuple cur, Tuple other,
     Expr new_d = select(d <= rd, d, rd);
 
     return Tuple(dx, dy, new_sx, new_sy, new_d);
+}
+
+Tuple nn_search(Tuple cur, Func dst, Func src, int width, int height)
+{
+    cur = propagate(cur, dst, src, width, height);
+    for (int radius = RADIUS; radius >= 1; radius--) {
+        cur = random_search(cur, dst, src, width, height, radius);
+    }
+    return cur;
 }
 
 void do_patchmatch(std::string input_file, std::string src_file, std::string output_file) 
@@ -142,41 +148,27 @@ void do_patchmatch(std::string input_file, std::string src_file, std::string out
     src(x, y) = Tuple(src_f(x, y, 0), src_f(x, y, 1), src_f(x, y, 2));
 
     Func map("map");
-    map(x, y) = MapEntry(x, y, 32, 32, FLT_MAX);
-    
-    Func left("left"), up("up"), search("search");
-    for (int i = 1; i <= NUM_ITERATIONS; i++) {
-        left(x, y) = map(x - 1, y);
-        up(x, y) = map(x, y - 1);
-        map(x, y) = propagate(map(x, y), left(x, y), up(x, y), dst, src, width, height);
+     
+    Var t;
+    map(x, y, t) = MapEntry(x, y, 
+        random_int() % width, 
+        random_int() % height, 
+        FLT_MAX);
 
-        for (int radius = 5; radius >= 1; radius--) {
-            int rand_x = rand() % (2 * radius) - radius;
-            int rand_y = rand() % (2 * radius) - radius;
-            search(x, y) = map(x + rand_x, y + rand_y);
-
-            // search(x, y) = select(0 <= x + rand_x && x + rand_x < width,
-            //     select(0 <= y + rand_y && y + rand_y < height,
-            //         map(x + rand_x, y + rand_y),
-            //         map(x, y)
-            //     ),
-            //     map(x, y)
-            // );
-            map(x, y) = random_search(map(x, y), search(x, y), dst, src, width, height);
-        }
-    }
+    RDom iter(1, NUM_ITERATIONS);
+    map(x, y, iter) = nn_search(map(x, y, iter - 1), dst, src, width, height);
 
     Func remap("remap");
     remap(x, y, c) = src_f(
-        MapEntry(map(x, y)).get_sx() % width, 
-        MapEntry(map(x, y)).get_sy() % height, 
+        MapEntry(map(x, y, NUM_ITERATIONS - 1)).get_sx() % width, 
+        MapEntry(map(x, y, NUM_ITERATIONS - 1)).get_sy() % height, 
         c);
 
     Func output("output");
     output(x, y, c) = cast<uint8_t>(remap(x, y, c));
 
-    Buffer<uint8_t> result(width - 2, height - 2, 3);
-    result.set_min(1, 1);
+    Buffer<uint8_t> result(width - STRIDE, height - STRIDE, 3);
+    result.set_min(STRIDE, STRIDE);
     output.realize(result);
 
     save_image(result, output_file.c_str());
@@ -229,7 +221,11 @@ int main(int argc, char** argv) {
         printf("Missing output file\n");
     }
 
+    double t1 = CycleTimer::currentSeconds();
     do_patchmatch(input_file, src_file, output_file);
+    double t2 = CycleTimer::currentSeconds();
+    double time_elasped = (t2 - t1);
+    printf("Time: %.4f\n", time_elasped);
 
     return 0;
 }

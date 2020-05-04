@@ -2,7 +2,7 @@ HALIDE_INC_PATH = $(HALIDE_PATH)/include
 HALIDE_LIB_PATH = $(HALIDE_PATH)/bin
 
 INCFLAG = -I $(HALIDE_PATH)/include -I $(HALIDE_PATH)/tools
-LDFLAG = -L $(HALIDE_PATH)/bin -lHalide `libpng-config --cflags --ldflags` -ljpeg
+LDFLAG = -L $(HALIDE_PATH)/bin -lHalide `libpng-config --cflags --ldflags` -ljpeg -lpthread -ldl
 
 EXECUTABLE = PatchMatchHalide
 
@@ -15,7 +15,7 @@ INC_FILES =
 CC_FILES = resize.cpp
 
 RAW_INPUT_FILE = ../img/avatar.jpg
-RAW_SRC_FILE = ../img/mona-lisa.jpg
+RAW_SRC_FILE = ../img/monalisa.jpg
 OUTPUT_FILE = ../output/avatar-halide.jpg
 INPUT_FILE = $(RAW_INPUT_FILE)-resize.jpg
 SRC_FILE = $(RAW_SRC_FILE)-resize.jpg
