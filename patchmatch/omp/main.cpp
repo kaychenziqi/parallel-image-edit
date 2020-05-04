@@ -48,11 +48,11 @@ void do_patchmatch(string input_file, string src_file, string output_file,
     if (width == -1) width = dstMat.cols;
     if (height == -1) height = dstMat.rows;
 
-    #if DEBUG
+    // #if DEBUG
     cout << "Width: " << width << endl;
     cout << "Height: " << height << endl;
     cout << "HalfPatch: " << half_patch << endl;
-    #endif
+    // #endif
 
     do_convert(srcMat, srcMat2, width, height);
     do_convert(dstMat, dstMat2, width, height);

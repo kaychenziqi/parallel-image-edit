@@ -5,6 +5,7 @@
 
 #include "util.h"
 #include "patchmatch.h"
+#include "cycletimer.h"
 
 using namespace cv;
 using namespace std;
@@ -98,8 +99,8 @@ void nn_search(float *first, float *second, map_t *curMap,
     int height, int width, int half_patch)
 {
     // int search_radius = min(MAX_SEARCH_RADIUS, min(width, height));
-    int search_radius = max(width, height);
-    // int search_radius = min(3, max(width, height));
+    // int search_radius = max(width, height);
+    int search_radius = min(5, max(width, height));
 
     for (int fy = 0; fy < height; fy++) {
         for (int fx = 0; fx < width; fx++) {
@@ -144,8 +145,8 @@ void nn_search(float *first, float *second, map_t *curMap,
             }
 
             // random search
-            for (int radius = search_radius; radius >= 1; radius /= 2) {
-            // for (int radius = search_radius; radius >= 1; radius--) {
+            // for (int radius = search_radius; radius >= 1; radius /= 2) {
+            for (int radius = search_radius; radius >= 1; radius--) {
                 int rx, ry;
                 pick_random_pixel(radius, height, width, 
                     best_x, best_y, &rx, &ry);
@@ -234,13 +235,23 @@ void nn_map_average(float *src, float *dst, map_t *map,
 
 void patchmatch(float *src, float *dst, int height, int width, int half_patch)
 {
+    double t1, time_init, time_search = 0, time_map;
     map_t *curMap = (map_t *) malloc(height * width * sizeof(map_t));
+
+    t1 = currentSeconds();
     init_random_map(dst, src, curMap, height, width, half_patch);
+    time_init = currentSeconds() - t1;
 
     for (int i = 1; i <= NUM_ITERATIONS; i++) {
+        #if DEBUG
         cout << "PATCHMATCH iteration " << i << endl;
-        nn_search(dst, src, curMap, height, width, half_patch);
+        #endif
 
+        t1 = currentSeconds();
+        nn_search(dst, src, curMap, height, width, half_patch);
+        time_search += currentSeconds() - t1;
+
+        #if DEBUG
         if (SAVE_ITER_OUTPUT && (i % 4) == 0) {
             char fname[64];
             sprintf(fname, "../scratch/pm-iter-%i.jpg", i);
@@ -252,8 +263,16 @@ void patchmatch(float *src, float *dst, int height, int width, int half_patch)
             imwrite_array(fname, cur, height, width, 3);
             free(cur);
         }
+        #endif
     }
 
+    t1 = currentSeconds();
     nn_map_average(src, dst, curMap, height, width, half_patch);
+    time_map = currentSeconds() - t1;
+
     free(curMap);
+
+    cout << "Time init: "<< time_init << endl;
+    cout << "Time search per iter: "<< (time_search / NUM_ITERATIONS) << endl;
+    cout << "Time map: "<< time_map << endl;
 }
