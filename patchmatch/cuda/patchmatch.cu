@@ -1,4 +1,4 @@
-#include <iostream>
+#include <stdio.h>
 #include <curand_kernel.h>
 
 #include "patchmatch.h"
@@ -285,8 +285,8 @@ void patchmatch(float *src, float *dst, int height, int width, int half_patch)
         (width + blocksize - 1) / blocksize, 
         1);
 
-    // patchmatch_kernel<<<blockDim, gridDim>>>(d_dst, d_src, d_map, width, height, half_patch);
-    dummy_kernel<<<blockDim, gridDim>>>(d_dst, d_src, width, height, half_patch);
+    patchmatch_kernel<<<gridDim, blockDim>>>(d_src, d_dst, d_map, height, width, half_patch);
+    // dummy_kernel<<<gridDim, blockDim>>>(d_src, d_dst, width, height, half_patch);
     cudaDeviceSynchronize();
 
     cudaMemcpy(dst, d_dst, n_pixels * N_CHANNELS * sizeof(float), cudaMemcpyDeviceToHost);
