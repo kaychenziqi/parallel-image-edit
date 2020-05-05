@@ -55,7 +55,7 @@ test:
 	LD_LIBRARY_PATH=$(HALIDE_LIB_PATH) ./$(EXECUTABLE) -i $(INPUT_FILE) -s $(SRC_FILE) -o $(OUTPUT_FILE) -p 7
 
 # Usage:
-# make auto_generator
+# make auto_gen
 # export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$(HALIDE_PATH)/bin
 # make auto_schedule_false
 # make auto_schedule_true
