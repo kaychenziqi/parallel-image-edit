@@ -78,16 +78,18 @@ Tuple propagate(Tuple cur, Func dst, Func src, int width, int height)
     Expr sx = cur[2];
     Expr sy = cur[3];
     Expr d = cur[4];
+    Expr sx_left = min(width - 1, max(0, sx - STRIDE));
+    Expr sy_up = min(height - 1, max(0, sy - STRIDE));
 
-    Expr left_d = patch_distance(dst, src, dx, dy, sx - STRIDE, sy, width, height);
-    Expr up_d = patch_distance(dst, src, dx, dy, sx, sy - STRIDE, width, height);
+    Expr left_d = patch_distance(dst, src, dx, dy, sx_left, sy, width, height);
+    Expr up_d = patch_distance(dst, src, dx, dy, sx, sy_up, width, height);
 
     Expr new_sx = select(left_d <= d, 
-        select(left_d <= up_d, sx - STRIDE, sx),
+        select(left_d <= up_d, sx_left, sx),
         sx);
 
     Expr new_sy = select(up_d <= d, 
-        select(up_d <= left_d, sy - STRIDE, sy),
+        select(up_d <= left_d, sy_up, sy),
         sy);
 
     Expr new_d = select(d <= left_d, 
@@ -109,8 +111,8 @@ Tuple random_search(Tuple cur, Func dst, Func src, int width, int height, int ra
     Expr rand_x = random_int() % (2 * radius) - radius;
     Expr rand_y = random_int() % (2 * radius) - radius;
 
-    Expr rx = max(0, min(sx + rand_x, width));
-    Expr ry = max(0, min(sy + rand_y, height));
+    Expr rx = max(0, min(sx + rand_x, width - 1));
+    Expr ry = max(0, min(sy + rand_y, height - 1));
     Expr rd = patch_distance(dst, src, dx, dy, rx, ry, width, height);
 
     Expr new_sx = select(d <= rd, sx, rx);
@@ -147,6 +149,8 @@ void do_patchmatch(std::string input_file, std::string src_file, std::string out
     dst(x, y) = Tuple(dst_f(x, y, 0), dst_f(x, y, 1), dst_f(x, y, 2));
     src(x, y) = Tuple(src_f(x, y, 0), src_f(x, y, 1), src_f(x, y, 2));
 
+    double t1 = CycleTimer::currentSeconds();
+
     Func map("map");
      
     Var t;
@@ -170,6 +174,10 @@ void do_patchmatch(std::string input_file, std::string src_file, std::string out
     Buffer<uint8_t> result(width - STRIDE, height - STRIDE, 3);
     result.set_min(STRIDE, STRIDE);
     output.realize(result);
+
+    double t2 = CycleTimer::currentSeconds();
+    double time_elasped = (t2 - t1);
+    printf("Time: %.4f\n", time_elasped);
 
     save_image(result, output_file.c_str());
     printf("Success!\n");
@@ -221,11 +229,7 @@ int main(int argc, char** argv) {
         printf("Missing output file\n");
     }
 
-    double t1 = CycleTimer::currentSeconds();
     do_patchmatch(input_file, src_file, output_file);
-    double t2 = CycleTimer::currentSeconds();
-    double time_elasped = (t2 - t1);
-    printf("Time: %.4f\n", time_elasped);
 
     return 0;
 }
