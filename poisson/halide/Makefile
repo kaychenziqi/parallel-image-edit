@@ -64,4 +64,4 @@ auto: # auto_schedule_false auto_schedule_true
 	g++ $(AUTO_CC_FILES) $(AUTO_CXXFLAGS) $(INCFLAG) $(AUTO_LIB) $(AUTO_LDFLAGS) $(CC_FILES) $(INC_FILES) -o $(AUTO_EXECUTABLE)
 
 clean:
-	rm $(AUTOGEN_EXECUTABLE) $(AUTO_EXECUTABLE)
+	rm $(AUTOGEN_EXECUTABLE) $(AUTO_EXECUTABLE) $(AUTO_LIB) auto_schedule_true.h auto_schedule_false.h auto_schedule_true.schedule.h auto_schedule_false.schedule.h
