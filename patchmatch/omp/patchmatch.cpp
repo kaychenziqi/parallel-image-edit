@@ -9,6 +9,10 @@
 
 #include "util.h"
 #include "patchmatch.h"
+#include "cycletimer.h"
+
+#define CHUNKSIZE1 16
+#define CHUNKSIZE2 32
 
 using namespace cv;
 using namespace std;
@@ -116,15 +120,129 @@ void init_random_map(float *first, float *second, map_t *map,
     }
 }
 
-/**
- * For each pixel in first, search for optimal nn pixel in second 
- */ 
+void nn_search_helper(float *first, float *second, map_t *curMap, 
+    int height, int width, int half_patch, int fy, int fx)
+{
+    // int search_radius = min(MAX_SEARCH_RADIUS, min(width, height));
+    // int search_radius = max(width, height);
+    int search_radius = min(5, max(width, height));
+
+    int f = (fy * width) + fx;
+    int best_x = curMap[f].x; 
+    int best_y = curMap[f].y; 
+    float best_dist = curMap[f].dist;
+
+    // propagate
+    if (fx > 0) {
+        // find neighbor's patch
+        int pf = f - 1;
+        int px = curMap[pf].x + 1;
+        int py = curMap[pf].y;
+        
+        if (px < width) { 
+            float dist = patch_distance(first, second, fx, fy, px, py, height, width, half_patch);
+            
+            if (dist < best_dist) {
+                best_x = px; 
+                best_y = py;
+                best_dist = dist;
+            }
+        }
+    }
+
+    if (fy > 0) {
+        // find neighbor's patch
+        int pf = f - width;
+        int px = curMap[pf].x;
+        int py = curMap[pf].y + 1;
+        
+        if (py < height) { 
+            float dist = patch_distance(first, second, fx, fy, px, py, height, width, half_patch);
+            
+            if (dist < best_dist) {
+                best_x = px; 
+                best_y = py;
+                best_dist = dist;
+            }
+        }
+    }
+
+    // random search
+    // for (int radius = search_radius; radius >= 1; radius /= 2) {
+    for (int radius = search_radius; radius >= 1; radius--) {
+        int rx, ry;
+        pick_random_pixel(radius, height, width, 
+            best_x, best_y, &rx, &ry);
+
+        float dist = patch_distance(first, second, fx, fy, rx, ry, height, width, half_patch);
+
+        if (dist < best_dist) {
+            best_x = rx;
+            best_y = ry;
+            best_dist = dist;
+        }
+    }
+    
+    curMap[f].x = best_x;
+    curMap[f].y = best_y;
+    curMap[f].dist = best_dist;
+            
+}
+
+void nn_search_interleave(float *first, float *second, map_t *curMap, 
+    int height, int width, int half_patch)
+{
+    #if OMP
+    #pragma omp parallel
+    #endif
+    {
+        int T = omp_get_num_threads();
+        int Tx = (int) floor(sqrt((double) T));
+        int Ty = T / Tx;
+
+        int t = omp_get_thread_num();
+        int ty = t / Tx;
+        int tx = t % Tx;
+
+        int y_interval = CHUNKSIZE1 * Ty;
+        int x_interval = CHUNKSIZE2 * Tx;
+        int yy_start = CHUNKSIZE1 * ty;
+        int xx_start = CHUNKSIZE2 * tx;
+
+        for (int y_start = yy_start; y_start < height; y_start += y_interval) {
+            for (int x_start = xx_start; x_start < width; x_start += x_interval) {
+                int y_end = min(y_start + CHUNKSIZE1, height);
+                int x_end = min(x_start + CHUNKSIZE2, width);
+
+                for (int fy = y_start; fy < y_end; fy++) {
+                    for (int fx = x_start; fx < x_end; fx++) {
+                        nn_search_helper(first, second, curMap, 
+                            height, width, half_patch, fy, fx);
+                    }
+                }
+            }
+        }
+    }
+}
+
+void nn_search_dynamic(float *first, float *second, map_t *curMap, 
+    int height, int width, int half_patch)
+{
+    #if OMP
+    #pragma omp parallel for schedule(dynamic, 8)
+    #endif
+    for (int fy = 0; fy < height; fy++) {
+        for (int fx = 0; fx < width; fx++) {
+            nn_search_helper(first, second, curMap, 
+                height, width, half_patch, fy, fx);
+        }
+    }
+    
+}
+
 void nn_search(float *first, float *second, map_t *curMap, 
     int height, int width, int half_patch)
 {
-    // int search_radius = min(MAX_SEARCH_RADIUS, min(width, height));
-    int search_radius = max(width, height);
-
     #if OMP
     #pragma omp parallel
     #endif
@@ -147,68 +265,13 @@ void nn_search(float *first, float *second, map_t *curMap,
 
         for (int fy = y_start; fy < y_end; fy++) {
             for (int fx = x_start; fx < x_end; fx++) {
-                int f = (fy * width) + fx;
-                int best_x = curMap[f].x; 
-                int best_y = curMap[f].y; 
-                float best_dist = curMap[f].dist;
-
-                // propagate
-                if (fx > 0) {
-                    // find neighbor's patch
-                    int pf = f - 1;
-                    int px = curMap[pf].x + 1;
-                    int py = curMap[pf].y;
-                    
-                    if (px < width) { 
-                        float dist = patch_distance(first, second, fx, fy, px, py, height, width, half_patch);
-                        
-                        if (dist < best_dist) {
-                            best_x = px; 
-                            best_y = py;
-                            best_dist = dist;
-                        }
-                    }
-                }
-
-                if (fy > 0) {
-                    // find neighbor's patch
-                    int pf = f - width;
-                    int px = curMap[pf].x;
-                    int py = curMap[pf].y + 1;
-                    
-                    if (py < height) { 
-                        float dist = patch_distance(first, second, fx, fy, px, py, height, width, half_patch);
-                        
-                        if (dist < best_dist) {
-                            best_x = px; 
-                            best_y = py;
-                            best_dist = dist;
-                        }
-                    }
-                }
-
-                // random search
-                for (int radius = search_radius; radius >= 1; radius /= 2) {
-                    int rx, ry;
-                    pick_random_pixel(radius, height, width, 
-                        best_x, best_y, &rx, &ry);
-
-                    float dist = patch_distance(first, second, fx, fy, rx, ry, height, width, half_patch);
-
-                    if (dist < best_dist) {
-                        best_x = rx;
-                        best_y = ry;
-                        best_dist = dist;
-                    }
-                }
-                
-                curMap[f].x = best_x;
-                curMap[f].y = best_y;
-                curMap[f].dist = best_dist;
+                nn_search_helper(first, second, curMap, 
+                    height, width, half_patch, fy, fx);
             }
         }
     }
 }
+
 
 void nn_map(float *src, float *dst, map_t *map,
     int height, int width)
@@ -218,8 +281,8 @@ void nn_map(float *src, float *dst, map_t *map,
     #endif
     {
         int T = omp_get_num_threads();
-        int Ty = (int) ceil(sqrt((double) T));
-        int Tx = T / Ty;
+        int Tx = (int) floor(sqrt((double) T));
+        int Ty = T / Tx;
 
         int t = omp_get_thread_num();
         int ty = t / Tx;
@@ -260,6 +323,8 @@ void nn_map(float *src, float *dst, map_t *map,
 void nn_map_average(float *src, float *dst, map_t *map, 
     int height, int width, int half_patch)
 {
+    half_patch = min(3, half_patch);
+
     #if OMP
     #pragma omp parallel
     #endif
@@ -319,13 +384,25 @@ void nn_map_average(float *src, float *dst, map_t *map,
 
 void patchmatch(float *src, float *dst, int height, int width, int half_patch)
 {
+    double t1, time_init, time_search = 0, time_map;
     map_t *curMap = (map_t *) malloc(height * width * sizeof(map_t));
+
+    t1 = currentSeconds();
     init_random_map(dst, src, curMap, height, width, half_patch);
+    time_init = currentSeconds() - t1;
 
     for (int i = 1; i <= NUM_ITERATIONS; i++) {
+        #if DEBUG
         cout << "PATCHMATCH iteration " << i << endl;
-        nn_search(dst, src, curMap, height, width, half_patch);
+        #endif
 
+        t1 = currentSeconds();
+        nn_search(dst, src, curMap, height, width, half_patch);
+        // nn_search_interleave(dst, src, curMap, height, width, half_patch);
+        // nn_search_dynamic(dst, src, curMap, height, width, half_patch);
+        time_search += currentSeconds() - t1;
+
+        #if DEBUG
         if (SAVE_ITER_OUTPUT && (i % 4) == 0) {
             char fname[64];
             sprintf(fname, "../scratch/pm-iter-%i.jpg", i);
@@ -337,8 +414,16 @@ void patchmatch(float *src, float *dst, int height, int width, int half_patch)
             imwrite_array(fname, cur, height, width, 3);
             free(cur);
         }
+        #endif
     }
 
+    t1 = currentSeconds();
     nn_map_average(src, dst, curMap, height, width, half_patch);
+    time_map = currentSeconds() - t1;
+
     free(curMap);
+
+    cout << "Time init: "<< time_init << endl;
+    cout << "Time search per iter: "<< (time_search / NUM_ITERATIONS) << endl;
+    cout << "Time map: "<< time_map << endl;
 }
