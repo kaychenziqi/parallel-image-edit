@@ -15,6 +15,10 @@ using namespace Halide::Tools;
 #define RADIUS 5
 #define STRIDE 1
 
+#ifndef GPU_SCHEDULE
+#define GPU_SCHEDULE 0
+#endif
+
 struct MapEntry {
     Expr dx;
     Expr dy;
@@ -126,12 +130,42 @@ Tuple nn_search(Tuple cur, Tuple left, Tuple up,
     Func dst, Func src, Expr width, Expr height)
 {
     cur = propagate(cur, left, up, dst, src, width, height);
-    cur = random_search(cur, ran1, dst, src, width, height);
-    cur = random_search(cur, ran2, dst, src, width, height);
-    cur = random_search(cur, ran3, dst, src, width, height);
-    cur = random_search(cur, ran4, dst, src, width, height);
+    // cur = random_search(cur, ran1, dst, src, width, height);
+    // cur = random_search(cur, ran2, dst, src, width, height);
+    // cur = random_search(cur, ran3, dst, src, width, height);
+    // cur = random_search(cur, ran4, dst, src, width, height);
     cur = random_search(cur, ran5, dst, src, width, height);
     return cur;
+}
+
+Target find_gpu_target() {
+    // Start with a target suitable for the machine you're running this on.
+    Target target = get_host_target();
+
+    std::vector<Target::Feature> features_to_try;
+    if (target.os == Target::Windows) {
+        // Try D3D12 first; if that fails, try OpenCL.
+        if (sizeof(void*) == 8) {
+            // D3D12Compute support is only available on 64-bit systems at present.
+            features_to_try.push_back(Target::D3D12Compute);
+        }
+        features_to_try.push_back(Target::OpenCL);
+    } else if (target.os == Target::OSX) {
+        // OS X doesn't update its OpenCL drivers, so they tend to be broken.
+        // CUDA would also be a fine choice on machines with NVidia GPUs.
+        features_to_try.push_back(Target::Metal);
+    } else {
+        features_to_try.push_back(Target::OpenCL);
+    }
+    // Uncomment the following lines to also try CUDA:
+    // features_to_try.push_back(Target::CUDA);
+
+    for (Target::Feature f : features_to_try) {
+        Target new_target = target.with_feature(f);
+        if (host_supports_target_device(new_target)) {
+            return new_target;
+        }
+    }
 }
 
 void do_patchmatch(std::string input_file, std::string src_file, std::string output_file) 
@@ -182,12 +216,25 @@ void do_patchmatch(std::string input_file, std::string src_file, std::string out
     Func output("output");
     output(x, y, c) = cast<uint8_t>(remap(x, y, c) * 255);
 
-    map.compute_root()
-        .parallel(y)
-        .parallel(x);
-    output.compute_root()
-        .parallel(y)
-        .parallel(x);
+    if (GPU_SCHEDULE) {
+        printf("Using GPU schedule\n");
+
+        Var xa, ya, xb, yb;
+        Var xc, yc, xd, yd;
+
+        map.gpu_tile(x, y, xc, yc, xd, yd, 16, 16);
+        map.compile_jit(find_gpu_target());
+    }
+    else {
+        printf("Using CPU schedule\n");
+
+        map.compute_root()
+            .parallel(y)
+            .parallel(x);
+        output.compute_root()
+            .parallel(y)
+            .parallel(x);
+    }
 
     Buffer<uint8_t> result(width, height, 3);
     result.set_min(0, 0);

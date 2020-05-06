@@ -51,6 +51,9 @@ resize: resize_exe
 halide:
 	g++ main.cpp -g $(INCFLAG) $(LDFLAG) -o $(EXECUTABLE) -std=c++11
 
+gpu:
+	g++ main.cpp -g $(INCFLAG) $(LDFLAG) -o $(EXECUTABLE) -std=c++11 -DGPU_SCHEDULE=1
+
 test:
 	LD_LIBRARY_PATH=$(HALIDE_LIB_PATH) ./$(EXECUTABLE) -i $(INPUT_FILE) -s $(SRC_FILE) -o $(OUTPUT_FILE) -p 7
 

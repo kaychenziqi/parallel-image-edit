@@ -153,10 +153,10 @@ public:
         Func dst, Func src, Expr width, Expr height)
     {
         cur = propagate(cur, left, up, dst, src, width, height);
-        cur = random_search(cur, ran1, dst, src, width, height);
-        cur = random_search(cur, ran2, dst, src, width, height);
-        cur = random_search(cur, ran3, dst, src, width, height);
-        cur = random_search(cur, ran4, dst, src, width, height);
+        // cur = random_search(cur, ran1, dst, src, width, height);
+        // cur = random_search(cur, ran2, dst, src, width, height);
+        // cur = random_search(cur, ran3, dst, src, width, height);
+        // cur = random_search(cur, ran4, dst, src, width, height);
         cur = random_search(cur, ran5, dst, src, width, height);
         return cur;
     }
