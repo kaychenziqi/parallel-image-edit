@@ -51,12 +51,15 @@ resize: resize_exe
 halide:
 	g++ main.cpp -g $(INCFLAG) $(LDFLAG) -o $(EXECUTABLE) -std=c++11
 
+gpu:
+	g++ main.cpp -g $(INCFLAG) $(LDFLAG) -o $(EXECUTABLE) -std=c++11 -DGPU_SCHEDULE=1
+
 test:
 	LD_LIBRARY_PATH=$(HALIDE_LIB_PATH) ./$(EXECUTABLE) -i $(INPUT_FILE) -s $(SRC_FILE) -o $(OUTPUT_FILE) -p 7
 
 # Usage:
 # make auto_gen
-# export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$(HALIDE_PATH)/bin
+# export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$HALIDE_PATH/bin
 # make auto_schedule_false
 # make auto_schedule_true
 # make auto
@@ -73,8 +76,14 @@ auto_schedule_true:
 auto: # auto_schedule_false auto_schedule_true
 	g++ $(AUTO_CC_FILES) $(AUTO_CXXFLAGS) $(INCFLAG) $(AUTO_LIB) $(AUTO_LDFLAGS) -o $(AUTO_EXECUTABLE)
 
-test_auto:
+auto_test:
 	./$(AUTO_EXECUTABLE) -i $(INPUT_FILE) -s $(SRC_FILE) -o $(OUTPUT_FILE) -p 7
+
+auto_all: 
+	make auto_gen 
+	make auto_schedule_false 
+	make auto_schedule_true
+	make auto
 
 clean:
 	rm $(EXECUTABLE) $(AUTOGEN_EXECUTABLE) $(AUTO_EXECUTABLE)

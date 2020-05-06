@@ -15,6 +15,10 @@ using namespace Halide::Tools;
 #define RADIUS 5
 #define STRIDE 1
 
+#ifndef GPU_SCHEDULE
+#define GPU_SCHEDULE 0
+#endif
+
 struct MapEntry {
     Expr dx;
     Expr dy;
@@ -53,7 +57,7 @@ inline Expr sum_squared_diff(Tuple a, Tuple b)
 }
 
 Expr patch_distance(Func dst, Func src, Expr dx, Expr dy, Expr sx, Expr sy, 
-    int width, int height)
+    Expr width, Expr height)
 {
     Expr distance(0.f);
     for (int j = -HALF_PATCH; j <= HALF_PATCH; j++) {
@@ -71,26 +75,28 @@ Expr patch_distance(Func dst, Func src, Expr dx, Expr dy, Expr sx, Expr sy,
     return distance;
 }
 
-Tuple propagate(Tuple cur, Func dst, Func src, int width, int height)
+Tuple propagate(Tuple cur, Tuple left, Tuple up, Func dst, Func src, Expr width, Expr height)
 {
     Expr dx = cur[0];
     Expr dy = cur[1];
     Expr sx = cur[2];
     Expr sy = cur[3];
     Expr d = cur[4];
-    Expr sx_left = min(width - 1, max(0, sx - STRIDE));
-    Expr sy_up = min(height - 1, max(0, sy - STRIDE));
+    Expr sx_left = min(width - 1, max(0, left[2] + 1));
+    Expr sy_left = left[3];
+    Expr sx_up = up[2];
+    Expr sy_up = min(height - 1, max(0, up[3] + 1));
 
-    Expr left_d = patch_distance(dst, src, dx, dy, sx_left, sy, width, height);
-    Expr up_d = patch_distance(dst, src, dx, dy, sx, sy_up, width, height);
+    Expr left_d = patch_distance(dst, src, dx, dy, sx_left, sy_left, width, height);
+    Expr up_d = patch_distance(dst, src, dx, dy, sx_up, sy_up, width, height);
 
     Expr new_sx = select(left_d <= d, 
-        select(left_d <= up_d, sx_left, sx),
-        sx);
+        select(left_d <= up_d, sx_left, sx_up),
+        select(d <= up_d, sx, sx_up));
 
     Expr new_sy = select(up_d <= d, 
-        select(up_d <= left_d, sy_up, sy),
-        sy);
+        select(up_d <= left_d, sy_up, sy_left),
+        select(d <= left_d, sy, sy_left));
 
     Expr new_d = select(d <= left_d, 
         select(d <= up_d, d, up_d),
@@ -100,7 +106,7 @@ Tuple propagate(Tuple cur, Func dst, Func src, int width, int height)
     return Tuple(dx, dy, new_sx, new_sy, new_d);
 }
 
-Tuple random_search(Tuple cur, Func dst, Func src, int width, int height, int radius)
+Tuple random_search(Tuple cur, Tuple ran, Func dst, Func src, Expr width, Expr height)
 {
     Expr dx = cur[0];
     Expr dy = cur[1];
@@ -108,11 +114,8 @@ Tuple random_search(Tuple cur, Func dst, Func src, int width, int height, int ra
     Expr sy = cur[3];
     Expr d = cur[4];
 
-    Expr rand_x = random_int() % (2 * radius) - radius;
-    Expr rand_y = random_int() % (2 * radius) - radius;
-
-    Expr rx = max(0, min(sx + rand_x, width - 1));
-    Expr ry = max(0, min(sy + rand_y, height - 1));
+    Expr rx = max(0, min(ran[2], width - 1));
+    Expr ry = max(0, min(ran[3], height - 1));
     Expr rd = patch_distance(dst, src, dx, dy, rx, ry, width, height);
 
     Expr new_sx = select(d <= rd, sx, rx);
@@ -122,13 +125,47 @@ Tuple random_search(Tuple cur, Func dst, Func src, int width, int height, int ra
     return Tuple(dx, dy, new_sx, new_sy, new_d);
 }
 
-Tuple nn_search(Tuple cur, Func dst, Func src, int width, int height)
+Tuple nn_search(Tuple cur, Tuple left, Tuple up,
+    Tuple ran1, Tuple ran2, Tuple ran3, Tuple ran4, Tuple ran5,
+    Func dst, Func src, Expr width, Expr height)
 {
-    cur = propagate(cur, dst, src, width, height);
-    for (int radius = RADIUS; radius >= 1; radius--) {
-        cur = random_search(cur, dst, src, width, height, radius);
-    }
+    cur = propagate(cur, left, up, dst, src, width, height);
+    // cur = random_search(cur, ran1, dst, src, width, height);
+    // cur = random_search(cur, ran2, dst, src, width, height);
+    // cur = random_search(cur, ran3, dst, src, width, height);
+    // cur = random_search(cur, ran4, dst, src, width, height);
+    cur = random_search(cur, ran5, dst, src, width, height);
     return cur;
+}
+
+Target find_gpu_target() {
+    // Start with a target suitable for the machine you're running this on.
+    Target target = get_host_target();
+
+    std::vector<Target::Feature> features_to_try;
+    if (target.os == Target::Windows) {
+        // Try D3D12 first; if that fails, try OpenCL.
+        if (sizeof(void*) == 8) {
+            // D3D12Compute support is only available on 64-bit systems at present.
+            features_to_try.push_back(Target::D3D12Compute);
+        }
+        features_to_try.push_back(Target::OpenCL);
+    } else if (target.os == Target::OSX) {
+        // OS X doesn't update its OpenCL drivers, so they tend to be broken.
+        // CUDA would also be a fine choice on machines with NVidia GPUs.
+        features_to_try.push_back(Target::Metal);
+    } else {
+        features_to_try.push_back(Target::OpenCL);
+    }
+    // Uncomment the following lines to also try CUDA:
+    // features_to_try.push_back(Target::CUDA);
+
+    for (Target::Feature f : features_to_try) {
+        Target new_target = target.with_feature(f);
+        if (host_supports_target_device(new_target)) {
+            return new_target;
+        }
+    }
 }
 
 void do_patchmatch(std::string input_file, std::string src_file, std::string output_file) 
@@ -142,8 +179,8 @@ void do_patchmatch(std::string input_file, std::string src_file, std::string out
     int height = dst_u8.height();
 
     Func dst_f("dst_f"), src_f("src_f");
-    dst_f(x, y, c) = cast<float>(dst_u8(x, y, c));
-    src_f(x, y, c) = cast<float>(src_u8(x, y, c));
+    dst_f(x, y, c) = cast<float>(dst_u8(x, y, c)) / 255.f;
+    src_f(x, y, c) = cast<float>(src_u8(x, y, c)) / 255.f;
 
     Func dst("dst"), src("src");
     dst(x, y) = Tuple(dst_f(x, y, 0), dst_f(x, y, 1), dst_f(x, y, 2));
@@ -152,27 +189,55 @@ void do_patchmatch(std::string input_file, std::string src_file, std::string out
     double t1 = CycleTimer::currentSeconds();
 
     Func map("map");
-     
     Var t;
     map(x, y, t) = MapEntry(x, y, 
         random_int() % width, 
         random_int() % height, 
         FLT_MAX);
 
-    RDom iter(1, NUM_ITERATIONS);
-    map(x, y, iter) = nn_search(map(x, y, iter - 1), dst, src, width, height);
+    RDom r(0, width, 0, height, 1, NUM_ITERATIONS);
+    map(r.x, r.y, r.z) = nn_search(
+        map(r.x, r.y, r.z - 1), 
+        map(r.x - 1, r.y, r.z - 1),
+        map(r.x, r.y - 1, r.z - 1),
+        map(r.x + (random_int() % 10 - 5), r.y + (random_int() % 10 - 5), r.z - 1),
+        map(r.x + (random_int() % 18 - 9), r.y + (random_int() % 18 - 9), r.z - 1),
+        map(r.x + (random_int() % 24 - 12), r.y + (random_int() % 24 - 12), r.z - 1),
+        map(r.x + (random_int() % 28 - 14), r.y + (random_int() % 28 - 14), r.z - 1),
+        map(r.x + (random_int() % 30 - 15), r.y + (random_int() % 30 - 15), r.z - 1),
+        dst, src, width, height);
 
     Func remap("remap");
     remap(x, y, c) = src_f(
-        MapEntry(map(x, y, NUM_ITERATIONS - 1)).get_sx() % width, 
-        MapEntry(map(x, y, NUM_ITERATIONS - 1)).get_sy() % height, 
+        MapEntry(map(x, y, NUM_ITERATIONS)).get_sx() % width, 
+        MapEntry(map(x, y, NUM_ITERATIONS)).get_sy() % height, 
         c);
 
     Func output("output");
-    output(x, y, c) = cast<uint8_t>(remap(x, y, c));
+    output(x, y, c) = cast<uint8_t>(remap(x, y, c) * 255);
 
-    Buffer<uint8_t> result(width - STRIDE, height - STRIDE, 3);
-    result.set_min(STRIDE, STRIDE);
+    if (GPU_SCHEDULE) {
+        printf("Using GPU schedule\n");
+
+        Var xa, ya, xb, yb;
+        Var xc, yc, xd, yd;
+
+        map.gpu_tile(x, y, xc, yc, xd, yd, 16, 16);
+        map.compile_jit(find_gpu_target());
+    }
+    else {
+        printf("Using CPU schedule\n");
+
+        map.compute_root()
+            .parallel(y)
+            .parallel(x);
+        output.compute_root()
+            .parallel(y)
+            .parallel(x);
+    }
+
+    Buffer<uint8_t> result(width, height, 3);
+    result.set_min(0, 0);
     output.realize(result);
 
     double t2 = CycleTimer::currentSeconds();
