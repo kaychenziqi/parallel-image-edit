@@ -221,9 +221,20 @@ void do_patchmatch(std::string input_file, std::string src_file, std::string out
 
         Var xa, ya, xb, yb;
         Var xc, yc, xd, yd;
+        Var xe, ye, xf, yf;
+        Expr block_size = 16;
 
-        map.gpu_tile(x, y, xc, yc, xd, yd, 16, 16);
-        map.compile_jit(find_gpu_target());
+        dst.compute_root();
+        src.compute_root();
+
+        map.compute_root();  
+        map.gpu_tile(x, y, xa, ya, xb, yb, block_size, block_size);
+
+        remap.compute_root();
+        remap.gpu_tile(x, y, xc, yc, xd, yd, block_size, block_size);
+
+        output.gpu_tile(x, y, xe, ye, xf, yf, block_size, block_size);
+        output.compile_jit(find_gpu_target());
     }
     else {
         printf("Using CPU schedule\n");
