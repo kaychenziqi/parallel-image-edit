@@ -42,8 +42,8 @@ inline float patch_distance(float *first, float *second,
     int height, int width, int half_patch)
 {
     float dist = 0;
-    for (int j = -half_patch; j <= half_patch; j++) {
-        for (int i = -half_patch; i <= half_patch; i++) {
+    for (int j = -HALF_PATCH; j <= HALF_PATCH; j++) {
+        for (int i = -HALF_PATCH; i <= HALF_PATCH; i++) {
             int fx1 = min(width - 1, max(0, fx + i));
             int fy1 = min(height - 1, max(0, fy + i));
             float *fpixel = first + get_pidx(fy1, fx1, width) * N_CHANNELS;
@@ -100,7 +100,7 @@ void nn_search(float *first, float *second, map_t *curMap,
 {
     // int search_radius = min(MAX_SEARCH_RADIUS, min(width, height));
     // int search_radius = max(width, height);
-    int search_radius = min(5, max(width, height));
+    // int search_radius = min(5, max(width, height));
 
     for (int fy = 0; fy < height; fy++) {
         for (int fx = 0; fx < width; fx++) {
@@ -145,19 +145,17 @@ void nn_search(float *first, float *second, map_t *curMap,
             }
 
             // random search
-            // for (int radius = search_radius; radius >= 1; radius /= 2) {
-            for (int radius = search_radius; radius >= 1; radius--) {
-                int rx, ry;
-                pick_random_pixel(radius, height, width, 
-                    best_x, best_y, &rx, &ry);
+            int radius = 15;
+            int rx, ry;
+            pick_random_pixel(radius, height, width, 
+                best_x, best_y, &rx, &ry);
 
-                float dist = patch_distance(first, second, fx, fy, rx, ry, height, width, half_patch);
+            float dist = patch_distance(first, second, fx, fy, rx, ry, height, width, half_patch);
 
-                if (dist < best_dist) {
-                    best_x = rx;
-                    best_y = ry;
-                    best_dist = dist;
-                }
+            if (dist < best_dist) {
+                best_x = rx;
+                best_y = ry;
+                best_dist = dist;
             }
             
             curMap[f].x = best_x;
@@ -195,7 +193,7 @@ void nn_map(float *src, float *dst, map_t *map,
 void nn_map_average(float *src, float *dst, map_t *map, 
     int height, int width, int half_patch)
 {
-    half_patch = min(3, half_patch);
+    half_patch = max(1, HALF_PATCH / 2);
 
     for (int dy = 0; dy < height; dy++) {
         int fy_min = max(dy - half_patch, 0);
