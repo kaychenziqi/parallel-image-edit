@@ -25,6 +25,9 @@ AUTO_LDFLAGS = $(LDFLAG)
 AUTOGEN_CC_FILES = PoissonImageEdit_Generator.cpp $(HALIDE_PATH)/tools/GenGen.cpp
 AUTO_CC_FILES = PoissonImageEdit_Generator_Run.cpp
 
+GPU_CC_FILES = PoissonImageEdit_GPU.cpp
+GPU_EXECUTABLE = PoissonImageEdit_GPU
+
 default: all
 
 all: halide
@@ -62,6 +65,9 @@ auto_schedule_true:
 
 auto: # auto_schedule_false auto_schedule_true
 	g++ $(AUTO_CC_FILES) $(AUTO_CXXFLAGS) $(INCFLAG) $(AUTO_LIB) $(AUTO_LDFLAGS) $(CC_FILES) $(INC_FILES) -o $(AUTO_EXECUTABLE)
+
+gpuversion:
+	g++ $(GPU_CC_FILES) -g $(AUTO_CXXFLAGS) $(INCFLAG) $(LDFLAG) -o $(GPU_EXECUTABLE)
 
 clean:
 	rm $(AUTOGEN_EXECUTABLE) $(AUTO_EXECUTABLE) $(AUTO_LIB) auto_schedule_true.h auto_schedule_false.h auto_schedule_true.schedule.h auto_schedule_false.schedule.h
