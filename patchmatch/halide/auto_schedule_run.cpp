@@ -42,14 +42,12 @@ void do_patchmatch(std::string input_file, std::string src_file, std::string out
     int height = dst_u8.height();
     Halide::Runtime::Buffer<uint8_t> output(width - STRIDE, height - STRIDE, 3);
 
-    // Run each version of the codes (with no auto-schedule and with
-    // auto-schedule) multiple times for benchmarking.
-    double auto_schedule_off = Halide::Tools::benchmark(2, 3, [&]() {
+    double auto_schedule_off = Halide::Tools::benchmark(1, 2, [&]() {
         auto_schedule_false(dst_u8, src_u8, output);
     });
     printf("Manual schedule: %gms\n", auto_schedule_off * 1e3);
 
-    double auto_schedule_on = Halide::Tools::benchmark(2, 3, [&]() {
+    double auto_schedule_on = Halide::Tools::benchmark(1, 2, [&]() {
         auto_schedule_true(dst_u8, src_u8, output);
     });
     printf("Auto schedule: %gms\n", auto_schedule_on * 1e3);
@@ -95,10 +93,10 @@ int main(int argc, char** argv) {
     }
 
     if (src_file == "") {
-        printf("Missing src_u8 file\n");
+        printf("Missing src file\n");
     }
     if (input_file == "") {
-        printf("Missing dst_u8 file\n");
+        printf("Missing dst file\n");
     }
     if (output_file == "") {
         printf("Missing output file\n");
