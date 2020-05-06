@@ -15,7 +15,7 @@ using namespace Halide;
 using namespace Halide::Tools;
 using namespace std;
 
-#define ITERATION 2
+#define ITERATION 10000
 enum position_tag {INSIDE_MASK, BOUNDRY, OUTSIDE};
 
 Target find_gpu_target();
@@ -108,17 +108,18 @@ int main(int argc, char** argv) {
     
     poisson_jacobi.compute_root();
     poisson_jacobi.gpu_tile(x, y, xa,ya,xb,yb,8,8);
+    
     final_image.gpu_tile(x,y,xo,yo,xi,yi,8,8);
     Target target = find_gpu_target();
     final_image.print_loop_nest();
     final_image.compile_jit(target);
+
+    double t3 = currentSeconds();
     final_image.realize(output);
+    printf("GPU halide: %gms\n", (currentSeconds()-t3)*1000);
 
     // cout<<"get here"<<endl;
     //output.copy_to_host();
-    
-    
-
     save_image(output, "finalimage.png");
 }
 
