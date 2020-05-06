@@ -55,7 +55,7 @@ gpu:
 	g++ main.cpp -g $(INCFLAG) $(LDFLAG) -o $(EXECUTABLE) -std=c++11 -DGPU_SCHEDULE=1
 
 test:
-	LD_LIBRARY_PATH=$(HALIDE_LIB_PATH) ./$(EXECUTABLE) -i $(INPUT_FILE) -s $(SRC_FILE) -o $(OUTPUT_FILE) -p 7
+	./$(EXECUTABLE) -i $(INPUT_FILE) -s $(SRC_FILE) -o $(OUTPUT_FILE) -p 7
 
 # Usage:
 # make auto_gen
@@ -84,6 +84,76 @@ auto_all:
 	make auto_schedule_false 
 	make auto_schedule_true
 	make auto
+
+seq1:
+	g++ main.cpp -g $(INCFLAG) $(LDFLAG) -o $(EXECUTABLE) -std=c++11 -DHALF_PATCH=1
+	./$(EXECUTABLE) -i $(INPUT_FILE) -s $(SRC_FILE) -o $(OUTPUT_FILE) -p 1
+
+seq4:
+	g++ main.cpp -g $(INCFLAG) $(LDFLAG) -o $(EXECUTABLE) -std=c++11 -DHALF_PATCH=4
+	./$(EXECUTABLE) -i $(INPUT_FILE) -s $(SRC_FILE) -o $(OUTPUT_FILE) -p 4
+
+seq7:
+	g++ main.cpp -g $(INCFLAG) $(LDFLAG) -o $(EXECUTABLE) -std=c++11 -DHALF_PATCH=7
+	./$(EXECUTABLE) -i $(INPUT_FILE) -s $(SRC_FILE) -o $(OUTPUT_FILE) -p 7
+
+seq10:
+	g++ main.cpp -g $(INCFLAG) $(LDFLAG) -o $(EXECUTABLE) -std=c++11 -DHALF_PATCH=10
+	./$(EXECUTABLE) -i $(INPUT_FILE) -s $(SRC_FILE) -o $(OUTPUT_FILE) -p 10
+
+benchmark:
+	make seq1
+	make seq4
+	make seq7
+	make seq10
+
+
+auto_run:
+	make auto_schedule_false 
+	make auto_schedule_true
+	make auto
+
+auto_gen1:
+	g++ $(AUTOGEN_CC_FILES) $(AUTOGEN_CXXFLAGS) $(INCFLAG) $(LDFLAG) -o $(AUTOGEN_EXECUTABLE) -DHALF_PATCH=1
+
+auto_test1:
+	./$(AUTO_EXECUTABLE) -i $(INPUT_FILE) -s $(SRC_FILE) -o $(OUTPUT_FILE) -p 1
+
+auto_gen4:
+	g++ $(AUTOGEN_CC_FILES) $(AUTOGEN_CXXFLAGS) $(INCFLAG) $(LDFLAG) -o $(AUTOGEN_EXECUTABLE) -DHALF_PATCH=4
+
+auto_test4:
+	./$(AUTO_EXECUTABLE) -i $(INPUT_FILE) -s $(SRC_FILE) -o $(OUTPUT_FILE) -p 4
+
+auto_gen7:
+	g++ $(AUTOGEN_CC_FILES) $(AUTOGEN_CXXFLAGS) $(INCFLAG) $(LDFLAG) -o $(AUTOGEN_EXECUTABLE) -DHALF_PATCH=7
+
+auto_test7:
+	./$(AUTO_EXECUTABLE) -i $(INPUT_FILE) -s $(SRC_FILE) -o $(OUTPUT_FILE) -p 7
+
+auto_gen10:
+	g++ $(AUTOGEN_CC_FILES) $(AUTOGEN_CXXFLAGS) $(INCFLAG) $(LDFLAG) -o $(AUTOGEN_EXECUTABLE) -DHALF_PATCH=10
+
+auto_test10:
+	./$(AUTO_EXECUTABLE) -i $(INPUT_FILE) -s $(SRC_FILE) -o $(OUTPUT_FILE) -p 10
+
+auto_benchmark: 
+	make auto_gen1
+	make auto_run
+	make auto_test1
+
+	make auto_gen4
+	make auto_run
+	make auto_test4
+
+	make auto_gen7
+	make auto_run
+	make auto_test7
+
+	make auto_gen10
+	make auto_run
+	make auto_test10
+	
 
 clean:
 	rm $(EXECUTABLE) $(AUTOGEN_EXECUTABLE) $(AUTO_EXECUTABLE)
