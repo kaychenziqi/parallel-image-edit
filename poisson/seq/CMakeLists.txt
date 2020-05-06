@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 2.8)
 project( PoissonImageEdit )
 find_package( OpenCV REQUIRED )
-add_executable( PoissonImageEdit main.cpp )
+add_executable( PoissonImageEdit PoissonImageEdit.cpp )
 target_link_libraries( PoissonImageEdit ${OpenCV_LIBS} )

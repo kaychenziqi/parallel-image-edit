@@ -4,10 +4,10 @@
 #include <opencv2/imgproc/imgproc.hpp>
 #include <time.h>
 using namespace std;
-#define ITERATIONS 70000
+#define ITERATIONS 40000
 
 
-enum corner_pixel {INSIDE_MASK, BOUNDRY, OUTSIDE};
+enum pixel_position {INSIDE_MASK, BOUNDRY, OUTSIDE};
 
 void convert_layered_to_interleaved(float *aOut, const float *aIn, int w, int h, int nc)
 {
@@ -336,23 +336,28 @@ int main(int argc, char **argv)
     float *maskIn_cuda;
     float *targetimgIn_cuda;
 
-    // begin sequential part clocking
-    clock_t t1 = clock();
+    /*----------------sequential---------------*/
+    
     //get boundary pixel array to indicate which pixel is corner, edge, inside_mask, boundary or just outside
     extract_boundary(maskIn, boundryPixelArray_seq, source_nc, source_w, source_h);
     int boundBoxMinX, boundBoxMinY, boundBoxMaxX, boundBoxMaxY; 
+    
     // calculate the bounding box for reducing unnecessary calculation
     calculate_boundbox(target_w, target_h, target_nc, boundryPixelArray_seq, &boundBoxMinX, &boundBoxMinY, &boundBoxMaxX, &boundBoxMaxY);
+
+    // merge the original image with the target region
     merge_without_blend(srcimgIn, targetimgIn, imgOut_seq, boundryPixelArray_seq, source_nc, source_w, source_h);
-    poisson_jacobi(targetimgIn, imgOut_seq, boundryPixelArray_seq, source_nc, source_w, source_h, boundBoxMinX, boundBoxMaxX, boundBoxMinY, boundBoxMaxY);
     
+    clock_t t1 = clock();
+    poisson_jacobi(targetimgIn, imgOut_seq, boundryPixelArray_seq, source_nc, source_w, source_h, boundBoxMinX, boundBoxMaxX, boundBoxMinY, boundBoxMaxY);
     clock_t sequential_time = clock()-t1;
+
     cout << "time cost for CPU: "<<sequential_time * 1.0 / CLOCKS_PER_SEC * 1000 << endl;
     convert_layered_to_interleaved((float*)mOut_seq.data, imgOut_seq, source_w, source_h, source_nc);
     cv::imwrite("FinalImage_sequential.jpg",mOut_seq*255.f);
 
     /*-------------------cuda------------------*/
-    clock_t t2 = clock();
+    
     cudaMalloc(&boundryPixelArray_cuda, source_w*source_h*source_nc * sizeof(int));
     cudaMalloc(&imgOut_cuda, source_w*source_h*source_nc * sizeof(double));
     cudaMalloc(&srcimgIn_cuda, source_w*source_h*source_nc * sizeof(double));
@@ -372,19 +377,19 @@ int main(int argc, char **argv)
 
     dim3 block_target(30,4,1);
     dim3 grid_target = dim3((boundBoxMaxX-boundBoxMinX+block_target.x)/block_target.x, (boundBoxMaxY-boundBoxMinY+block_target.y)/block_target.y, 1);
+
     merge_without_blend_kernel<<<grid_image, block_image>>>(srcimgIn_cuda, targetimgIn_cuda, imgOut_cuda, boundryPixelArray_cuda, source_nc, source_w, source_h);
 
+    clock_t t2 = clock();
     for(int i=0; i<ITERATIONS; i++){
         poisson_jacobi_kernel<<<grid_target, block_target>>>(targetimgIn_cuda, imgOut_cuda, boundryPixelArray_cuda, source_nc, source_w, source_h, boundBoxMinX, boundBoxMaxX, boundBoxMinY, boundBoxMaxY);
         cudaDeviceSynchronize();
     }
-    
     cudaMemcpy(imgOut_seq, imgOut_cuda, source_w*source_h*source_nc * sizeof(float), cudaMemcpyDeviceToHost);
-    
     clock_t cuda_time = clock()-t2;
+
     cout << "time cost for GPU: "<<cuda_time * 1.0 / CLOCKS_PER_SEC * 1000 << endl;
     cout << "speedup for cuda: "<<(sequential_time * 1.0 / CLOCKS_PER_SEC * 1000)/(cuda_time * 1.0 / CLOCKS_PER_SEC * 1000)<<endl;
-    print_cuda_info();
     convert_layered_to_interleaved((float*)mOut_seq.data, imgOut_seq, source_w, source_h, source_nc);
     cv::imwrite("FinalImage_cuda.jpg",mOut_seq*255.f);
 

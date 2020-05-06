@@ -20,12 +20,12 @@ using namespace Halide;
 using namespace Halide::Tools;
 using namespace std;
 
-#define ITERATION 100
+#define ITERATION 40000
 enum position_tag {INSIDE_MASK, BOUNDRY, OUTSIDE};
 int main(int argc, char** argv) {
-    string source_image = "/afs/andrew.cmu.edu/usr18/yuxindin/private/15-618/parallel-image-edit/poisson/input/1/source.png";
-    string mask = "/afs/andrew.cmu.edu/usr18/yuxindin/private/15-618/parallel-image-edit/poisson/input/1/mask.png";
-    string target_image = "/afs/andrew.cmu.edu/usr18/yuxindin/private/15-618/parallel-image-edit/poisson/input/1/target.png";
+    string source_image = "../input/1/source.png";
+    string mask = "../input/1/mask.png";
+    string target_image = "../input/1/target.png";
 
     //source_image = argv[1];
     cout<<" source_image   : "<<source_image<<endl;
@@ -74,14 +74,12 @@ int main(int argc, char** argv) {
     merge_without_blend(x,y,c) = cast<float>(value_source);
     merge_without_blend(x,y,c) = select(boundary_array(x,y,c)==INSIDE_MASK, cast<float>(mtargetImage(x,y,c)), merge_without_blend(x,y,c));
     
+    double t2 = currentSeconds();
     Halide::Runtime::Buffer<float> image_to_blend_f(66, 61, mmask.channels());
     image_to_blend_f.set_min(boundBoxMinX_value+1, boundBoxMinY_value+1);
     merge_without_blend.realize(image_to_blend_f);
     image_to_blend_f.set_min(0,0);
 
-
-    
-    cout<<"get 80"<<endl;
 
     tmp_calculate_target(x, y, c) = cast<float>(value_target);
     calculate_target(x, y, c) = 4 * tmp_calculate_target(x, y, c) - tmp_calculate_target(x+1, y, c)- tmp_calculate_target(x-1, y, c)- tmp_calculate_target(x, y+1, c)- tmp_calculate_target(x, y-1, c);
@@ -90,37 +88,24 @@ int main(int argc, char** argv) {
     target_value_f.set_min(boundBoxMinX_value+1, boundBoxMinY_value+1);
     calculate_target.realize(target_value_f);
     target_value_f.set_min(0,0);
+    double t3 = currentSeconds();
 
     Halide::Runtime::Buffer<uint8_t> output(66, 61, 3);
-    //output(x,y,c) = image_to_blend_f(x,y,c);
-
-    cout<<"begin enter generator"<<endl;
-
+    
+ 
     double auto_schedule_off;
-    double total_auto_schedule_off=0;
-    double t3 = currentSeconds();
-    //for(int x=0; x<ITERATION; x++){
-        auto_schedule_off = Halide::Tools::benchmark(2, 3, [&]() {
-            auto_schedule_false(image_to_blend_f, target_value_f, output);
-        });
-    //     total_auto_schedule_off+=auto_schedule_off;
-    //     //image_to_blend_f(x,y,c) = output(x,y,c);
-    // //}
-    printf("Manual schedule: %gms\n", (currentSeconds()-t3)*1000);
+    
+    auto_schedule_off = Halide::Tools::benchmark(2, 3, [&]() {
+        auto_schedule_false(image_to_blend_f, target_value_f, output);
+    });
+    printf("Manual schedule: %gms\n", auto_schedule_off * 1e3);
 
     double auto_schedule_on;
-    double total_auto_schedule_on=0;
-    t3=currentSeconds();
-    //for(int x=0; x<ITERATION; x++){
-        // auto_schedule_on = Halide::Tools::benchmark(2, 3, [&]() {
-        //     auto_schedule_true(image_to_blend_f, target_value_f, output);
-            
-        // });
-        // total_auto_schedule_on += auto_schedule_on;
-        //image_to_blend_f(x,y,c) = output(x,y,c);
-    //}
-    //printf("Auto schedule: %gms\n", (currentSeconds()-t3)*1000);
-
+    
+    auto_schedule_on = Halide::Tools::benchmark(2, 3, [&]() {
+        auto_schedule_true(image_to_blend_f, target_value_f, output);   
+    });
+    printf("Auto schedule: %gms\n", auto_schedule_on * 1e3);
 
     save_image(output, "finalimage.png");
 }

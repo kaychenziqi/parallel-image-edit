@@ -5,7 +5,6 @@
 #include "halide_image_io.h"
 #include "cycletimer.h"
 
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <getopt.h>
@@ -15,29 +14,28 @@ using namespace Halide;
 using namespace Halide::Tools;
 using namespace std;
 
-#define ITERATION 10000
+#define ITERATION 40000
+#define USE_GPU 0
+
 enum position_tag {INSIDE_MASK, BOUNDRY, OUTSIDE};
 
 Target find_gpu_target();
 int main(int argc, char** argv) {
-    string source_image = "/afs/andrew.cmu.edu/usr18/yuxindin/private/15-618/parallel-image-edit/poisson/input/1/source.png";
-    string mask = "/afs/andrew.cmu.edu/usr18/yuxindin/private/15-618/parallel-image-edit/poisson/input/1/mask.png";
-    string target_image = "/afs/andrew.cmu.edu/usr18/yuxindin/private/15-618/parallel-image-edit/poisson/input/1/target.png";
+    string source_image = "../input/1/source.png";
+    string mask = "../input/1/mask.png";
+    string target_image = "../input/1/target.png";
 
-    //source_image = argv[1];
     cout<<" source_image   : "<<source_image<<endl;
-    
-    //target_image = argv[2];
     cout<<" target_image   : "<<target_image<<endl;
-    
-    //mask = argv[3];
     cout<<" Mask name   : "<<mask <<endl;
 
-    // make clear about the value
+    // preset the boundbox
     int boundBoxMinX_value = 66;
     int boundBoxMinY_value = 204;
     int boundBoxMaxX_value = 132;
     int boundBoxMaxY_value = 265; 
+    int boundBoxWidth = 66;
+    int boundBoxHeight = 61;
 
     Buffer<uint8_t> msourceImage = load_image(source_image);
     Buffer<uint8_t> mtargetImage = load_image(target_image);
@@ -57,7 +55,6 @@ int main(int argc, char** argv) {
     Func calculate_target;
 
     extract_boundary(x, y, c) = value_mask;
-
     real_extract_boundary(x, y, c) = select(x==0||y==0||x==mmask.width()-1||y==mmask.height()-1, OUTSIDE*1.0f,    
                                         extract_boundary(x,y,c)==255 &&  
                                         extract_boundary(Halide::min(x+1, mmask.width()-1),y,c)==255&& 
@@ -70,27 +67,23 @@ int main(int argc, char** argv) {
 
     merge_without_blend(x,y,c) = cast<float>(value_source);
     merge_without_blend(x,y,c) = select(boundary_array(x,y,c)==INSIDE_MASK, cast<float>(mtargetImage(x,y,c)), merge_without_blend(x,y,c));
-    
-    Buffer<float> image_to_blend_f(66, 61, mmask.channels());
+    Buffer<float> image_to_blend_f(boundBoxWidth, boundBoxHeight, mmask.channels());
     image_to_blend_f.set_min(boundBoxMinX_value+1, boundBoxMinY_value+1);
     merge_without_blend.realize(image_to_blend_f);
     image_to_blend_f.set_min(0,0);
 
-
-    cout<<"get 80"<<endl;
-
     tmp_calculate_target(x, y, c) = cast<float>(value_target);
-    calculate_target(x, y, c) = 4 * tmp_calculate_target(x, y, c) - tmp_calculate_target(x+1, y, c)- tmp_calculate_target(x-1, y, c)- tmp_calculate_target(x, y+1, c)- tmp_calculate_target(x, y-1, c);
-    
-    Buffer<float> target_value_f(66, 61, mmask.channels());
+    calculate_target(x, y, c) = 4 * tmp_calculate_target(x, y, c) - tmp_calculate_target(x+1, y, c)- tmp_calculate_target(x-1, y, c)- tmp_calculate_target(x, y+1, c)- tmp_calculate_target(x, y-1, c);  
+    Buffer<float> target_value_f(boundBoxWidth, boundBoxHeight, mmask.channels());
     target_value_f.set_min(boundBoxMinX_value+1, boundBoxMinY_value+1);
     calculate_target.realize(target_value_f);
     target_value_f.set_min(0,0);
 
-    Buffer<uint8_t> output(65, 60, 3);
-    //output(x,y,c) = image_to_blend_f(x,y,c);
+    // to avoid calculation beyond bound
+    Buffer<uint8_t> output(boundBoxWidth-1, boundBoxHeight-1, 3);
 
-    RDom r(1, 64, 1, 59, 1, ITERATION);
+    double t3 = currentSeconds();
+    RDom r(1, boundBoxWidth-2, 1, boundBoxHeight-2, 1, ITERATION);
     Func poisson_jacobi;
     Var t;
     poisson_jacobi(x,y,c,t) =  cast<float>(image_to_blend_f(x,y,c));
@@ -105,24 +98,25 @@ int main(int argc, char** argv) {
 
     Var xo,yo,xi,yi;
     Var xa,ya,xb,yb;
+    Var co,ci;
     
     poisson_jacobi.compute_root();
-    poisson_jacobi.gpu_tile(x, y, xa,ya,xb,yb,8,8);
+
+    if(USE_GPU){
+        poisson_jacobi.gpu_tile(x,y,xa,ya,xb,yb,4,4);
+        final_image.gpu_tile(x,y,xo,yo,xi,yi,4,4);
+        Target target = find_gpu_target();
+        final_image.print_loop_nest();
+        final_image.compile_jit(target);
+    }
+
     
-    final_image.gpu_tile(x,y,xo,yo,xi,yi,8,8);
-    Target target = find_gpu_target();
-    final_image.print_loop_nest();
-    final_image.compile_jit(target);
-
-    double t3 = currentSeconds();
     final_image.realize(output);
-    printf("GPU halide: %gms\n", (currentSeconds()-t3)*1000);
-
-    // cout<<"get here"<<endl;
-    //output.copy_to_host();
+    printf("Running Time: %gms\n", (currentSeconds()-t3)*1000);
     save_image(output, "finalimage.png");
 }
 
+// referenced from Halide/tutorial/lesson_12_using_the_gpu.cpp
 Target find_gpu_target() {
     // Start with a target suitable for the machine you're running this on.
     Target target = get_host_target();
@@ -143,7 +137,7 @@ Target find_gpu_target() {
         features_to_try.push_back(Target::OpenCL);
     }
     // Uncomment the following lines to also try CUDA:
-    //features_to_try.push_back(Target::CUDA);
+    //
 
     for (Target::Feature f : features_to_try) {
         Target new_target = target.with_feature(f);

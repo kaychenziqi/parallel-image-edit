@@ -6,13 +6,13 @@
 #include "omp.h"
 #include "cycletimer.h"
 using namespace std;
-#define ITERATIONS 70000
+#define ITERATIONS 40000
 #define THREAD_COUNT 8
 #define ROW_THREAD 1
 #define CHUNKSIZE1 256
 
 
-enum corner_pixel {INSIDE_MASK, BOUNDRY, OUTSIDE};
+enum pixel_position{INSIDE_MASK, BOUNDRY, OUTSIDE};
 
 void convert_layered_to_interleaved(float *aOut, const float *aIn, int w, int h, int nc){
 	if (nc==1) { memcpy(aOut, aIn, w*h*sizeof(float)); return; }
@@ -181,14 +181,6 @@ void extract_boundary(float *maskIn, int *boundryPixelArray, int source_nchannel
             for(int x = 0; x < source_width; x++){
                 int id = x + y*source_width + channel * source_width * source_height;
                 
-                // if(x==0 && y==0 && maskIn[id]) boundryPixelArray[id]=CORNER_PIXEL_0_0;
-                // else if(x==0 && y==source_height-1 && maskIn[id]) boundryPixelArray[id]=CORNER_PIXEL_0_H;
-                // else if(x==source_width-1 && y==0 && maskIn[id]) boundryPixelArray[id]=CORNER_PIXEL_W_0;
-                // else if(x==source_width-1 && y==source_height-1 && maskIn[id]) boundryPixelArray[id]=CORNER_PIXEL_W_H;
-                // else if(x==0 && y < source_height-1 && maskIn[id]) boundryPixelArray[id]=EDGE_PIXEL_LEFT;
-                // else if(x==source_width-1 && y < source_height-1 && maskIn[id]) boundryPixelArray[id]=EDGE_PIXEL_RIGHT;
-                // else if(x < source_width-1 && y==0 && maskIn[id]) boundryPixelArray[id]=EDGE_PIXEL_DOWN;
-                // else if(x < source_width-1 && y==source_height-1 && maskIn[id]) boundryPixelArray[id]=EDGE_PIXEL_UP;
                 if(x==0 && y==0 && maskIn[id]){
                     boundryPixelArray[id]=OUTSIDE;
                 }
@@ -246,8 +238,7 @@ void extract_boundary_omp_static(float *maskIn, int *boundryPixelArray, int sour
         int y_end = y_begin+y_each;
         int x_begin = (t%ROW_THREAD)*x_each;
         int x_end = x_begin+x_each;
-        //printf("y_begin %d, y_end %d, x_begin %d, x_end %d\n",y_begin, y_end, x_begin, x_end);
-        //int tcount = omp_get_num_threads(); we use 12 threads in this experiment
+        
         for(int channel = 0; channel < source_nchannel; channel++){
             for(int y = y_begin; y<y_end && y < source_height; y++){
                 for(int x = x_begin; x<x_end && x < source_width; x++){
@@ -300,7 +291,7 @@ void extract_boundary_omp_static(float *maskIn, int *boundryPixelArray, int sour
     }
 }
 
-//TODO
+
 void extract_boundary_omp_dynamic(float *maskIn, int *boundryPixelArray, int source_nchannel, int source_width, int source_height){
     #if OMP
     #pragma omp parallel for schedule(dynamic, CHUNKSIZE1)
@@ -380,8 +371,7 @@ void merge_without_blend_omp_static(float *srcimg, float *targetimg, float *outi
         int y_end = y_begin+y_each;
         int x_begin = (t%ROW_THREAD)*x_each;
         int x_end = x_begin+x_each;
-        //printf("y_begin %d, y_end %d, x_begin %d, x_end %d\n",y_begin, y_end, x_begin, x_end);
-        //int tcount = omp_get_num_threads(); we use 12 threads in this experiment
+        
         for(int channel = 0; channel < source_nchannel; channel++){
             for(int y = y_begin; y<y_end && y < source_height; y++){
                 for(int x = x_begin; x<x_end && x < source_width; x++){
@@ -434,7 +424,6 @@ void poisson_jacobi(float *targetimg, float *outimg,
     int h, int boundBoxMinX, int boundBoxMaxX, 
     int boundBoxMinY, int boundBoxMaxY){
     for(int i=0; i<ITERATIONS; i++){
-        //printf("%d iteration\n", i);
         for(int channel = 0; channel < c; channel++){
             for(int y = boundBoxMinY; y <= boundBoxMaxY; y++){
                 for(int x = boundBoxMinX; x <= boundBoxMaxX; x++){
@@ -443,7 +432,6 @@ void poisson_jacobi(float *targetimg, float *outimg,
                     int idx_prevX = x-1 + w*y + w*h*channel;
                     int idx_nextY = x + w*(y+1) +w*h*channel;
                     int idx_prevY = x + w*(y-1) +w*h*channel;
-                    //printf("id: %d, idx_nextX: %d, idx_prevX: %d, idx_nextY: %d, idx_prevY: %d\n", id, idx_nextX, idx_prevX, idx_nextY, idx_prevY);
                     if(boundary_array[id] == INSIDE_MASK){
                         double neighbor_target = targetimg[idx_nextY]+targetimg[idx_nextX]+targetimg[idx_prevX]+targetimg[idx_prevY];
                         double neighbor_output = outimg[idx_nextY]+outimg[idx_nextX]+outimg[idx_prevX]+outimg[idx_prevY];
@@ -483,7 +471,6 @@ void poisson_jacobi_omp_static(float *neighbor_sum, float *targetimg, float *out
         int x_end = x_begin+x_each;
     
         for(int i=0; i<ITERATIONS; i++){
-            //printf("%d iteration\n", i);
             for(int channel = 0; channel < c; channel++){
                 for(int y = y_begin; y < y_end && y<boundBoxMaxY; y++){
                     for(int x = x_begin; x < x_end && x<boundBoxMaxX; x++){
@@ -492,9 +479,8 @@ void poisson_jacobi_omp_static(float *neighbor_sum, float *targetimg, float *out
                         int idx_prevX = x-1 + w*y + w*h*channel;
                         int idx_nextY = x + w*(y+1) +w*h*channel;
                         int idx_prevY = x + w*(y-1) +w*h*channel;
-                        //printf("id: %d, idx_nextX: %d, idx_prevX: %d, idx_nextY: %d, idx_prevY: %d\n", id, idx_nextX, idx_prevX, idx_nextY, idx_prevY);
+                        
                         if(boundary_array[id] == INSIDE_MASK){
-                            //double neighbor_target = targetimg[idx_nextY]+targetimg[idx_nextX]+targetimg[idx_prevX]+targetimg[idx_prevY];
                             double neighbor_output = outimg[idx_nextY]+outimg[idx_nextX]+outimg[idx_prevX]+outimg[idx_prevY];
                             outimg[id] = 0.25*(neighbor_sum[id] + neighbor_output);
                         }
@@ -530,7 +516,7 @@ void poisson_jacobi_omp_dynamic(float *targetimg, float *outimg,
             int idx_prevX = x-1 + w*y + w*h*channel;
             int idx_nextY = x + w*(y+1) +w*h*channel;
             int idx_prevY = x + w*(y-1) +w*h*channel;
-            //printf("id: %d, idx_nextX: %d, idx_prevX: %d, idx_nextY: %d, idx_prevY: %d\n", id, idx_nextX, idx_prevX, idx_nextY, idx_prevY);
+           
             if(boundary_array[id] == INSIDE_MASK){
                 double neighbor_target = targetimg[idx_nextY]+targetimg[idx_nextX]+targetimg[idx_prevX]+targetimg[idx_prevY];
                 double neighbor_output = outimg[idx_nextY]+outimg[idx_nextX]+outimg[idx_prevX]+outimg[idx_prevY];
@@ -544,8 +530,7 @@ void poisson_jacobi_omp_dynamic(float *targetimg, float *outimg,
 
 int main(int argc, char **argv)
 {
-    //int iterations=ITERATIONS;
-
+    
     string source_image = "";
     string mask = "";
     string target_image = "";
@@ -608,19 +593,19 @@ int main(int argc, char **argv)
     float *imgOut_openmp_dynamic = new float[(size_t)target_w*target_h*mOut_seq.channels()];
     float *neighbor_sum_list = new float[(size_t)target_w*target_h*mOut_seq.channels()];
     
-    //begin sequential part clocking
-    double t1 = currentSeconds();
-    cout<<"begin sequentail"<<endl;
+    /*---------sequential-----------*/
     //get boundary pixel array to indicate which pixel is corner, edge, inside_mask, boundary or just outside
     extract_boundary(maskIn, boundryPixelArray_seq, source_nc, source_w, source_h);
     int boundBoxMinX, boundBoxMinY, boundBoxMaxX, boundBoxMaxY; 
     // calculate the bounding box for reducing unnecessary calculation
     calculate_boundbox(target_w, target_h, target_nc, boundryPixelArray_seq, &boundBoxMinX, &boundBoxMinY, &boundBoxMaxX, &boundBoxMaxY);
+    // merge the original image with the targeted area
     merge_without_blend(srcimgIn, targetimgIn, imgOut_seq, boundryPixelArray_seq, source_nc, source_w, source_h);
-    cout << "time cost for seq initialize: "<<(currentSeconds()-t1) * 1000 << endl;
-    poisson_jacobi(targetimgIn, imgOut_seq, boundryPixelArray_seq, source_nc, source_w, source_h, boundBoxMinX, boundBoxMaxX, boundBoxMinY, boundBoxMaxY);
     
+    double t1 = currentSeconds();
+    poisson_jacobi(targetimgIn, imgOut_seq, boundryPixelArray_seq, source_nc, source_w, source_h, boundBoxMinX, boundBoxMaxX, boundBoxMinY, boundBoxMaxY);   
     double sequential_time = currentSeconds()-t1;
+
     cout << "time cost for CPU: "<<sequential_time * 1000 << endl;
     convert_layered_to_interleaved((float*)mOut_seq.data, imgOut_seq, source_w, source_h, source_nc);
     cv::imwrite("FinalImage_sequential.jpg",mOut_seq*255.f);
@@ -628,43 +613,31 @@ int main(int argc, char **argv)
     /*-------openmp static---------*/
     omp_set_num_threads(THREAD_COUNT);
     printf("openmp max threas: %d\n", omp_get_max_threads());
-    double t2 = currentSeconds();
-    cout<<"begin extract boundary"<<endl;
+    
     extract_boundary_omp_static(maskIn, boundryPixelArray_openmp, source_nc, source_w, source_h);
-    cout<<"begin calculate boundbox"<<endl;
     calculate_boundbox(target_w, target_h, target_nc, boundryPixelArray_openmp, &boundBoxMinX, &boundBoxMinY, &boundBoxMaxX, &boundBoxMaxY);
-    cout<<"begin merge"<<endl;
     merge_without_blend_omp_static(srcimgIn, targetimgIn, imgOut_openmp, boundryPixelArray_openmp, source_nc, source_w, source_h);
     neighbor_sum(neighbor_sum_list, targetimgIn, source_nc, source_w, source_h, boundBoxMinX, boundBoxMaxX, boundBoxMinY, boundBoxMaxY);
-    cout << "time cost for openmp static initialize: "<<(currentSeconds()-t2)* 1000 << endl;
     
-    printf("boundbox:%d, %d, %d, %d\n", boundBoxMinX, boundBoxMaxX, boundBoxMinY, boundBoxMaxY);
-    
+    double t2 = currentSeconds();
     poisson_jacobi_omp_static(neighbor_sum_list,targetimgIn, imgOut_openmp, boundryPixelArray_openmp, source_nc, source_w, source_h, boundBoxMinX, boundBoxMaxX, boundBoxMinY, boundBoxMaxY);
-    
     double openmp_time_static = currentSeconds()-t2;
+
     cout << "time cost for openmp static: "<<openmp_time_static * 1000 << endl;
     cout << "speedup for openmp static: "<<sequential_time/openmp_time_static<<endl;
-    
     convert_layered_to_interleaved((float*)mOut_seq.data, imgOut_openmp, source_w, source_h, source_nc);
     cv::imwrite("FinalImage_omp_static.jpg",mOut_seq*255.f);
 
     /*---------openmp dynamic---------*/
     omp_set_num_threads(THREAD_COUNT);
-    double t3 = currentSeconds();
-    cout<<"begin extract boundary"<<endl;
     extract_boundary_omp_dynamic(maskIn, boundryPixelArray_openmp_dynamic, source_nc, source_w, source_h);
-    cout<<"begin calculate boundbox"<<endl;
     calculate_boundbox(target_w, target_h, target_nc, boundryPixelArray_openmp_dynamic, &boundBoxMinX, &boundBoxMinY, &boundBoxMaxX, &boundBoxMaxY);
-    cout<<"begin merge"<<endl;
     merge_without_blend_omp_dynamic(srcimgIn, targetimgIn, imgOut_openmp_dynamic, boundryPixelArray_openmp_dynamic, source_nc, source_w, source_h);
-    cout << "time cost for openmp dynamic initialize: "<<(currentSeconds()-t3) * 1000 << endl;
     
-    //for(int i=0; i<ITERATIONS; i++){
-        poisson_jacobi_omp_dynamic(targetimgIn, imgOut_openmp_dynamic, boundryPixelArray_openmp_dynamic, source_nc, source_w, source_h, boundBoxMinX, boundBoxMaxX, boundBoxMinY, boundBoxMaxY);
-    //}
-    
+    double t3 = currentSeconds();
+    poisson_jacobi_omp_dynamic(targetimgIn, imgOut_openmp_dynamic, boundryPixelArray_openmp_dynamic, source_nc, source_w, source_h, boundBoxMinX, boundBoxMaxX, boundBoxMinY, boundBoxMaxY);    
     double openmp_time_dynamic = currentSeconds()-t3;
+
     cout << "time cost for openmp dynamic: "<<openmp_time_dynamic * 1000 << endl;
     cout << "speedup for openmp dynamic: "<<sequential_time /openmp_time_dynamic<<endl;
     
