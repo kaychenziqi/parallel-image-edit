@@ -25,7 +25,7 @@ void init_rand(curandState *state)
 {
     int i = threadIdx.x + blockIdx.x * blockDim.x;
     int j = threadIdx.y + blockIdx.y * blockDim.y;
-    curand_init(i * 2 + 129, j * 3 + 237, 0, state);
+    curand_init(i, j, 0, state);
 }
 
 __device__ __inline__ 
@@ -37,7 +37,7 @@ float get_rand(curandState *state)
 __device__ __inline__
 float sum_squared_diff(float *fpixel, float *spixel)
 {
-    float dist = // sqrt(
+    float dist = //sqrt(
         square(fpixel[0] - spixel[0]) +
         square(fpixel[1] - spixel[1]) +
         square(fpixel[2] - spixel[2])
@@ -75,7 +75,13 @@ float patch_distance(float *first, float *second,
             int sidx = get_pidx(sy1, sx1, width);
             float *spixel = &second[sidx * N_CHANNELS];
 
+            // dist += 1;
             dist += sum_squared_diff(fpixel, spixel);
+            // dist += 
+            //     (fpixel[0] - spixel[0]) * (fpixel[0] - spixel[0]) +
+            //     (fpixel[1] - spixel[1]) * (fpixel[1] - spixel[1]) +
+            //     (fpixel[2] - spixel[2]) * (fpixel[2] - spixel[2])
+            // ;
         }
     }
     return dist;
@@ -127,15 +133,15 @@ void nn_search(float *first, float *second, int *pos, float *dist,
         int pf = f - 1;
         int px = pos[2 * pf] + 1;
         int py = pos[2 * pf + 1];
-
-        px = get_min(px, width - 1);
         
-        float d = patch_distance(first, second, fx, fy, px, py, height, width, half_patch);
-
-        if (d < best_dist) {
-            best_x = px; 
-            best_y = py;
-            best_dist = d;
+        if (px < width) { 
+            float d = patch_distance(first, second, fx, fy, px, py, height, width, half_patch);
+            // float d = 0.f;
+            if (d < best_dist) {
+                best_x = px; 
+                best_y = py;
+                best_dist = d;
+            }
         }
     }
 
@@ -144,15 +150,16 @@ void nn_search(float *first, float *second, int *pos, float *dist,
         int pf = f - width;
         int px = pos[2 * pf];
         int py = pos[2 * pf + 1] + 1;
-
-        py = get_min(py, height - 1);
+        py = get_min(height - 1, get_max(0, py));
         
-        float d = patch_distance(first, second, fx, fy, px, py, height, width, half_patch);
-        
-        if (d < best_dist) {
-            best_x = px; 
-            best_y = py;
-            best_dist = d;
+        if (py < height) { 
+            float d = patch_distance(first, second, fx, fy, px, py, height, width, half_patch);
+            
+            if (d < best_dist) {
+                best_x = px; 
+                best_y = py;
+                best_dist = d;
+            }
         }
     }
 
@@ -259,6 +266,13 @@ void patchmatch(float *src, float *dst, int height, int width, int half_patch)
 {
     int n_pixels = height * width;
 
+    int *pos = (int*)malloc(n_pixels * 2 * sizeof(int));
+    float *dist = (float*)malloc(n_pixels * sizeof(float));
+
+    // for (int i = 0; i < 10; i++) {
+    //     printf("i:%d, dist:%d\n", i, dist[i]);
+    // }
+
     float *d_src, *d_dst;
     int *d_pos;
     float *d_dist;
@@ -269,6 +283,8 @@ void patchmatch(float *src, float *dst, int height, int width, int half_patch)
 
     cudaMemcpy(d_src, src, n_pixels * N_CHANNELS * sizeof(float), cudaMemcpyHostToDevice);
     cudaMemcpy(d_dst, dst, n_pixels * N_CHANNELS * sizeof(float), cudaMemcpyHostToDevice); 
+    cudaMemcpy(d_pos, pos, n_pixels * 2 * sizeof(int), cudaMemcpyHostToDevice);
+    cudaMemcpy(d_dist, dist, n_pixels * sizeof(float), cudaMemcpyHostToDevice);
     
     int blocksize = 32;
     dim3 blockDim(blocksize, blocksize, 1);
@@ -281,6 +297,12 @@ void patchmatch(float *src, float *dst, int height, int width, int half_patch)
     cudaDeviceSynchronize();
 
     cudaMemcpy(dst, d_dst, n_pixels * N_CHANNELS * sizeof(float), cudaMemcpyDeviceToHost);
+    cudaMemcpy(pos, d_pos, n_pixels * 2 * sizeof(int), cudaMemcpyDeviceToHost);
+    cudaMemcpy(dist, d_dist, n_pixels * sizeof(float), cudaMemcpyDeviceToHost);
+
+    // for (int i = 0; i < 10; i++) {
+    //     printf("i:%d, dist:%d\n", i, dist[i]);
+    // }
 
     cudaFree(d_pos);
     cudaFree(d_dist);
