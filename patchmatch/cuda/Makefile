@@ -17,6 +17,10 @@ CC_FILES   := main.cpp util.cpp #cycletimer.c
 OBJDIR = objs
 OBJS = $(OBJDIR)/main.o $(OBJDIR)/patchmatch.o $(OBJDIR)/util.o # $(OBJDIR)/cycletimer.o 
 
+INPUT_FILE = ../img/avatar.jpg
+SRC_FILE = ../img/monalisa.jpg
+OUTPUT_FILE = ../output/avatar-cuda.jpg
+
 
 .PHONY: dirs clean
 
@@ -25,7 +29,7 @@ all: $(EXECUTABLE)
 default: $(EXECUTABLE)
 
 test:
-	./PatchMatchCuda -i ../img/Cloth2-view1.jpg -s ../img/Cloth1-view1.jpg -o ../output/Cloth2-view1-cuda.jpg -p 9 
+	./PatchMatchCuda -i $(INPUT_FILE) -s $(SRC_FILE) -o $(OUTPUT_FILE) -p 7
 
 dirs:
 		mkdir -p $(OBJDIR)/
