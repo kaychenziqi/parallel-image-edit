@@ -10,7 +10,9 @@
 using namespace Halide;
 using namespace Halide::Tools;
 
+#ifndef HALF_PATCH
 #define HALF_PATCH 7
+#endif
 #define NUM_ITERATIONS 10
 #define RADIUS 5
 #define STRIDE 1
@@ -240,11 +242,13 @@ void do_patchmatch(std::string input_file, std::string src_file, std::string out
         printf("Using CPU schedule\n");
 
         map.compute_root()
-            .parallel(y)
-            .parallel(x);
+            // .parallel(y)
+            // .parallel(x)
+            ;
         output.compute_root()
-            .parallel(y)
-            .parallel(x);
+            // .parallel(y)
+            // .parallel(x)
+            ;
     }
 
     Buffer<uint8_t> result(width, height, 3);
