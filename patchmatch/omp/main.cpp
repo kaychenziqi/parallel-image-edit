@@ -61,7 +61,7 @@ void do_patchmatch(string input_file, string src_file, string output_file,
     mat_to_array(dstMat2, &dst);
 
     double t1 = currentSeconds();
-    patchmatch(src, dst, height, width, half_patch);
+    patchmatch(src, dst, height, width);
     double t2 = currentSeconds();
 
     array_to_mat(dst, dstMat2, height, width, 3);

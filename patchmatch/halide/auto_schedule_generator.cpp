@@ -28,7 +28,9 @@
 
 using namespace Halide;
 
+#ifndef HALF_PATCH
 #define HALF_PATCH 7
+#endif
 #define NUM_ITERATIONS 10
 #define RADIUS 5
 #define STRIDE 1
