@@ -31,28 +31,39 @@ The project is developed on a x86 Red Hat Linux machine.
 
 ### Overview
 
+The paper: [PatchMatch: A Randomized Correspondence Algorithm for Structural Image Editing](https://gfx.cs.princeton.edu/pubs/Barnes_2009_PAR/patchmatch.pdf)
 
+The code implements a basic application of the algorithm, which reconstructs a target image using a source image. 
 
+|Target|Source|Output|
+|-------|-------|-------|
+| <img src="https://github.com/kaychenziqi/parallel-image-edit/blob/master/patchmatch/img/avatar.jpg" width="256">  | <img src="https://github.com/kaychenziqi/parallel-image-edit/blob/master/patchmatch/img/monalisa.jpg" width="256"> | <img src="https://github.com/kaychenziqi/parallel-image-edit/blob/master/patchmatch/output/avatar-output.jpg" width="256"> |
 
 ### How to Run
 
 #### Sequential, OpenMP, CUDA Versions
 
-```sh 
-cd patchmatch/seq # or, patchmatch/omp, patchmatch/cuda
+```
+cd patchmatch/seq 
+# cd patchmatch/omp
+# cd patchmatch/cuda
+
+# change input/output files in Makefile, if necessary
+# ...
+
 make
 make test
 ```
 
 #### Halide Version
 
-```sh
+```
 cd patchmatch/halide
 export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$HALIDE_INSTALL_PATH/bin
 ```
 
 1. Auto Schedule
-    ```sh
+    ```
     make auto_all
     make auto_test
     ```
@@ -67,8 +78,11 @@ export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$HALIDE_INSTALL_PATH/bin
 
 ### Overview
 
+The paper: [Poisson Image Editing](http://www.cs.virginia.edu/~connelly/class/2014/comp_photo/proj2/poisson.pdf)
 
-
+|Source|Target|Mask|Output|
+|-------|-------|-------|-------|
+| <img src="https://github.com/kaychenziqi/parallel-image-edit/blob/master/poisson/input/1/source.png" width="192">  | <img src="https://github.com/kaychenziqi/parallel-image-edit/blob/master/poisson/input/1/target.png" width="192"> | <img src="https://github.com/kaychenziqi/parallel-image-edit/blob/master/poisson/input/1/mask.png" width="192"> | <img src="https://github.com/kaychenziqi/parallel-image-edit/blob/master/poisson/output/finalimage.jpg" width="192"> |
 
 ### How to Run
 
